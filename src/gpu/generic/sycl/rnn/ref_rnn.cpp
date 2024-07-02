@@ -33,9 +33,10 @@
 #include "common/gemm_utils.hpp"
 #include "common/math_utils.hpp"
 #include "common/type_helpers.hpp"
-// #include "gpu/intel/gemm/gpu_gemm.hpp"
-// #include "gpu/intel/gpu_primitive_attr.hpp"
-// #include "gpu/intel/utils.hpp"
+#include "gpu/gpu_primitive.hpp"
+#include "gpu/intel/gemm/gpu_gemm.hpp"
+#include "gpu/intel/gpu_primitive_attr.hpp"
+#include "gpu/intel/utils.hpp"
 
 #define DPRINT(fmt, ...) \
     do { \
@@ -969,13 +970,13 @@ status_t _ref_rnn_common_t<aprop>::init(impl::engine_t *engine) {
     using namespace rnn_utils;
 
     switch (pd()->cell_kind()) {
-        case dnnl_vanilla_lstm:
-            cell_func = &class_name::cell_execution;
-            elemwise_common = pd()->src_type == data_type::u8
-                            && pd()->weights_type == data_type::s8
-                    ? &class_name::lstm_elemwise_u8s8
-                    : &class_name::lstm_elemwise;
-            break;
+        // case dnnl_vanilla_lstm:
+        //     cell_func = &class_name::cell_execution;
+        //     elemwise_common = pd()->src_type == data_type::u8
+        //                     && pd()->weights_type == data_type::s8
+        //             ? &class_name::lstm_elemwise_u8s8
+        //             : &class_name::lstm_elemwise;
+        //     break;
         case dnnl_vanilla_rnn:
             cell_func = &class_name::cell_execution;
             elemwise_common = &class_name::rnn_elemwise;
@@ -991,70 +992,67 @@ status_t _ref_rnn_common_t<aprop>::init(impl::engine_t *engine) {
         default: break;
     }
 
-    return status::unimplemented;
-}
+    grid_computation = &class_name::linear_execution;
 
-//     grid_computation = &class_name::linear_execution;
-
-//     const conf_t &rnn = pd()->rnn_conf;
-//     rnn_utils::set_workspace_offsets(rnn, ws_gates_offset_, ws_states_offset_,
-//             ws_c_states_offset_, ws_grid_comp_offset_, ws_bias_offset_);
+    const conf_t &rnn = pd()->rnn_conf;
+    rnn_utils::set_workspace_offsets(rnn, ws_gates_offset_, ws_states_offset_,
+            ws_c_states_offset_, ws_grid_comp_offset_, ws_bias_offset_);
 
 //     auto kernel_names = pd()->ocl_conf.get_kernel_names();
 //     CHECK(create_kernels(engine, kernels_, kernel_names, pd()->ocl_conf));
 
-//     bool gemm_ok = utils::everyone_is(status::success,
-//             pd()->gemm_layer_fwd_pd_ ? create_nested_primitive(
-//                     gemm_layer_fwd_, pd()->gemm_layer_fwd_pd_, engine)
-//                                      : status::success,
-//             pd()->gemm_layer_fwd_src_pd_ ? create_nested_primitive(
-//                     gemm_layer_fwd_src_, pd()->gemm_layer_fwd_src_pd_, engine)
-//                                          : status::success,
-//             pd()->gemm_iter_fwd_pd_ ? create_nested_primitive(
-//                     gemm_iter_fwd_, pd()->gemm_iter_fwd_pd_, engine)
-//                                     : status::success);
-//     switch (aprop) {
-//         case prop_kind::forward:
-//             gemm_ok = true
-//                     && utils::everyone_is(status::success,
-//                             rnn.is_vanilla_gru
-//                                     ? create_nested_primitive(gemm_iter_fwd_2_,
-//                                             pd()->gemm_iter_fwd_2_pd_, engine)
-//                                     : status::success);
-//             break;
-//         case prop_kind::backward:
-//             gemm_ok = true
-//                     && utils::everyone_is(status::success,
-//                             create_nested_primitive(gemm_layer_bwd_,
-//                                     pd()->gemm_layer_bwd_pd_, engine),
-//                             create_nested_primitive(gemm_iter_bwd_,
-//                                     pd()->gemm_iter_bwd_pd_, engine),
-//                             create_nested_primitive(gemm_diff_wei_layer_,
-//                                     pd()->gemm_diff_wei_layer_pd_, engine),
-//                             (pd()->gemm_diff_wei_layer_src_pd_
-//                                             ? create_nested_primitive(
-//                                                     gemm_diff_wei_layer_src_,
-//                                                     pd()->gemm_diff_wei_layer_src_pd_,
-//                                                     engine)
-//                                             : status::success),
-//                             create_nested_primitive(gemm_diff_wei_iter_,
-//                                     pd()->gemm_diff_wei_iter_pd_, engine),
-//                             rnn.is_vanilla_gru
-//                                     ? create_nested_primitive(gemm_iter_bwd_2_,
-//                                             pd()->gemm_iter_bwd_2_pd_, engine)
-//                                     : status::success,
-//                             rnn.is_vanilla_gru ? create_nested_primitive(
-//                                     gemm_diff_wei_iter_2_,
-//                                     pd()->gemm_diff_wei_iter_2_pd_, engine)
-//                                                : status::success);
-//             break;
-//         default: assert(!"unknown prop_kind"); return status::invalid_arguments;
-//     }
+    bool gemm_ok = utils::everyone_is(status::success,
+            pd()->gemm_layer_fwd_pd_ ? create_nested_primitive(
+                    gemm_layer_fwd_, pd()->gemm_layer_fwd_pd_, engine)
+                                     : status::success,
+            pd()->gemm_layer_fwd_src_pd_ ? create_nested_primitive(
+                    gemm_layer_fwd_src_, pd()->gemm_layer_fwd_src_pd_, engine)
+                                         : status::success,
+            pd()->gemm_iter_fwd_pd_ ? create_nested_primitive(
+                    gemm_iter_fwd_, pd()->gemm_iter_fwd_pd_, engine)
+                                    : status::success);
+    switch (aprop) {
+        case prop_kind::forward:
+            gemm_ok = true
+                    && utils::everyone_is(status::success,
+                            rnn.is_vanilla_gru
+                                    ? create_nested_primitive(gemm_iter_fwd_2_,
+                                            pd()->gemm_iter_fwd_2_pd_, engine)
+                                    : status::success);
+            break;
+        case prop_kind::backward:
+            gemm_ok = true
+                    && utils::everyone_is(status::success,
+                            create_nested_primitive(gemm_layer_bwd_,
+                                    pd()->gemm_layer_bwd_pd_, engine),
+                            create_nested_primitive(gemm_iter_bwd_,
+                                    pd()->gemm_iter_bwd_pd_, engine),
+                            create_nested_primitive(gemm_diff_wei_layer_,
+                                    pd()->gemm_diff_wei_layer_pd_, engine),
+                            (pd()->gemm_diff_wei_layer_src_pd_
+                                            ? create_nested_primitive(
+                                                    gemm_diff_wei_layer_src_,
+                                                    pd()->gemm_diff_wei_layer_src_pd_,
+                                                    engine)
+                                            : status::success),
+                            create_nested_primitive(gemm_diff_wei_iter_,
+                                    pd()->gemm_diff_wei_iter_pd_, engine),
+                            rnn.is_vanilla_gru
+                                    ? create_nested_primitive(gemm_iter_bwd_2_,
+                                            pd()->gemm_iter_bwd_2_pd_, engine)
+                                    : status::success,
+                            rnn.is_vanilla_gru ? create_nested_primitive(
+                                    gemm_diff_wei_iter_2_,
+                                    pd()->gemm_diff_wei_iter_2_pd_, engine)
+                                               : status::success);
+            break;
+        default: assert(!"unknown prop_kind"); return status::invalid_arguments;
+    }
 
-//     if (!gemm_ok) return status::runtime_error;
+    if (!gemm_ok) return status::runtime_error;
 
-//     return status::success;
-// }
+    return status::success;
+}
 
 // template <prop_kind_t aprop>
 // status_t _ref_rnn_common_t<aprop>::init_res_storage(
@@ -1112,7 +1110,7 @@ gemm_sig((_ref_rnn_common_t<aprop>::gemm_primitive)) {
 
     std::unique_ptr<nested_scratchpad_t> ns;
     const auto init_gemm_nested_scratchpad
-            = [&](const std::shared_ptr<primitive_t> &gemm, int key) {
+            = [&](const std::shared_ptr<impl::primitive_t> &gemm, int key) {
                   ns = utils::make_unique<nested_scratchpad_t>(ctx, key, gemm);
                   gemm_ctx.set_scratchpad_grantor(ns->grantor());
               };
@@ -1266,12 +1264,15 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
 }
 //********* GRID computations strategy: utility functions **********//
 
-// template <prop_kind_t aprop>
-// status_t _ref_rnn_common_t<aprop>::bias_prepare(const exec_ctx_t &ctx,
-//         compute::compute_stream_t *compute_stream, dim_t n_layer, dim_t n_dir,
-//         dim_t n_bias, dim_t n_gates, dim_t dhc, const memory_storage_t &ws_bias,
-//         const memory_storage_t &scales, const memory_storage_t &wei_layer,
-//         const memory_storage_t &wei_iter, const memory_storage_t &bias) const {
+template <prop_kind_t aprop>
+status_t _ref_rnn_common_t<aprop>::bias_prepare(const exec_ctx_t &ctx,
+        // compute::compute_stream_t *compute_stream, 
+        dim_t n_layer, dim_t n_dir,
+        dim_t n_bias, dim_t n_gates, dim_t dhc, const memory_storage_t &ws_bias,
+        const memory_storage_t &scales, const memory_storage_t &wei_layer,
+        const memory_storage_t &wei_iter, const memory_storage_t &bias) const {
+        return status::success;
+        }
 
 //     float data_shift = pd()->attr()->rnn_data_qparams_.shift_;
 //     float data_scale = pd()->attr()->rnn_data_qparams_.scale_;
@@ -1299,16 +1300,18 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
 //             kernels_[kernel_id::bias_prepare], arg_list);
 // }
 
-// template <prop_kind_t aprop>
-// status_t _ref_rnn_common_t<aprop>::copy_init_layer(const exec_ctx_t &ctx,
-//         compute::compute_stream_t *compute_stream, bool lr, bool rl,
-//         dim_t batch, dim_t dhc, dim_t slc, dim_t n_iter, dim_t n_layer,
-//         dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
-//         dim_t scratch_diff_states_ld, const memory_storage_t &ws_states,
-//         const memory_storage_t *scratch_diff_states,
-//         const memory_storage_t &input,
-//         const memory_storage_t &diff_dst_layer) const {
-
+template <prop_kind_t aprop>
+status_t _ref_rnn_common_t<aprop>::copy_init_layer(const exec_ctx_t &ctx,
+        // compute::compute_stream_t *compute_stream, 
+        bool lr, bool rl,
+        dim_t batch, dim_t dhc, dim_t slc, dim_t n_iter, dim_t n_layer,
+        dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
+        dim_t scratch_diff_states_ld, const memory_storage_t &ws_states,
+        const memory_storage_t *scratch_diff_states,
+        const memory_storage_t &input,
+        const memory_storage_t &diff_dst_layer) const {
+                return status::success;
+        }
 //     int32_t unused_ld = 0;
 
 //     if (aprop == prop_kind::forward) {
@@ -1358,18 +1361,21 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
 //     }
 // }
 
-// template <prop_kind_t aprop>
-// status_t _ref_rnn_common_t<aprop>::copy_init_iter(const exec_ctx_t &ctx,
-//         compute::compute_stream_t *compute_stream, dim_t batch, dim_t dhc,
-//         dim_t sic, dim_t n_iter, dim_t n_layer, dim_t n_dir, dim_t n_states,
-//         dim_t states_ws_ld, dim_t scratch_diff_states_ld,
-//         const rnn_utils::workspace_t &ws,
-//         const memory_storage_t *scratch_diff_states,
-//         const memory_storage_t &firstit_states,
-//         const memory_storage_t &firstit_c_states,
-//         const memory_storage_t &diff_dst_iter,
-//         const memory_storage_t &diff_dst_iter_c, const float shift,
-//         const float scale, const bool quantize) const {
+template <prop_kind_t aprop>
+status_t _ref_rnn_common_t<aprop>::copy_init_iter(const exec_ctx_t &ctx,
+        // compute::compute_stream_t *compute_stream, 
+        dim_t batch, dim_t dhc,
+        dim_t sic, dim_t n_iter, dim_t n_layer, dim_t n_dir, dim_t n_states,
+        dim_t states_ws_ld, dim_t scratch_diff_states_ld,
+        const rnn_utils::workspace_t &ws,
+        const memory_storage_t *scratch_diff_states,
+        const memory_storage_t &firstit_states,
+        const memory_storage_t &firstit_c_states,
+        const memory_storage_t &diff_dst_iter,
+        const memory_storage_t &diff_dst_iter_c, const float shift,
+        const float scale, const bool quantize) const {
+        return status::success;
+        }
 
 //     int32_t unused_ld = 0;
 //     if (aprop == prop_kind::forward) {
@@ -1432,17 +1438,20 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
 //     }
 // }
 
-// template <prop_kind_t aprop>
-// status_t _ref_rnn_common_t<aprop>::copy_res_layer(const exec_ctx_t &ctx,
-//         compute::compute_stream_t *compute_stream, bool lr, bool rl,
-//         dim_t batch, dim_t dhc, dim_t slc, dim_t n_iter, dim_t n_layer,
-//         dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
-//         dim_t scratch_diff_states_ld,
-//         const memory_storage_t *scratch_diff_states,
-//         const memory_storage_t &dst_last_layer,
-//         const memory_storage_t &diff_src_layer,
-//         const memory_storage_t &ws_states, const float shift, const float scale,
-//         const bool dequantize) const {
+template <prop_kind_t aprop>
+status_t _ref_rnn_common_t<aprop>::copy_res_layer(const exec_ctx_t &ctx,
+        // compute::compute_stream_t *compute_stream, 
+        bool lr, bool rl,
+        dim_t batch, dim_t dhc, dim_t slc, dim_t n_iter, dim_t n_layer,
+        dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
+        dim_t scratch_diff_states_ld,
+        const memory_storage_t *scratch_diff_states,
+        const memory_storage_t &dst_last_layer,
+        const memory_storage_t &diff_src_layer,
+        const memory_storage_t &ws_states, const float shift, const float scale,
+        const bool dequantize) const {
+        return status::success;
+        }
 
 //     int32_t unused_ld = 0;
 //     if (aprop == prop_kind::forward) {
@@ -1494,19 +1503,21 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
 //     }
 // }
 
-// template <prop_kind_t aprop>
-// status_t _ref_rnn_common_t<aprop>::copy_res_iter(const exec_ctx_t &ctx,
-//         compute::compute_stream_t *compute_stream, dim_t batch, dim_t dhc,
-//         dim_t sic, dim_t n_iter, dim_t n_layer, dim_t n_dir, dim_t n_states,
-//         dim_t states_ws_ld, dim_t scratch_diff_states_ld,
-//         const memory_storage_t *scratch_diff_states,
-//         const memory_storage_t &dst_last_iter,
-//         const memory_storage_t &dst_last_iter_c,
-//         const memory_storage_t &diff_src_iter,
-//         const memory_storage_t &diff_src_iter_c,
-//         const rnn_utils::workspace_t &ws, const float shift, const float scale,
-//         const bool dequantize) const {
-
+template <prop_kind_t aprop>
+status_t _ref_rnn_common_t<aprop>::copy_res_iter(const exec_ctx_t &ctx,
+        // compute::compute_stream_t *compute_stream, 
+        dim_t batch, dim_t dhc,
+        dim_t sic, dim_t n_iter, dim_t n_layer, dim_t n_dir, dim_t n_states,
+        dim_t states_ws_ld, dim_t scratch_diff_states_ld,
+        const memory_storage_t *scratch_diff_states,
+        const memory_storage_t &dst_last_iter,
+        const memory_storage_t &dst_last_iter_c,
+        const memory_storage_t &diff_src_iter,
+        const memory_storage_t &diff_src_iter_c,
+        const rnn_utils::workspace_t &ws, const float shift, const float scale,
+        const bool dequantize) const {
+        return status::success;
+        }
 //     int32_t unused_ld = 0;
 //     if (aprop == prop_kind::forward) {
 //         compute::kernel_arg_list_t arg_list;
@@ -1573,172 +1584,171 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
 
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::execute_(const exec_ctx_t &ctx) const {
-    return status::unimplemented;
-}
 
-//     engine_t *engine = ctx.stream()->engine();
+
+    impl::engine_t *engine = ctx.stream()->engine();
 //     auto *compute_stream
 //             = utils::downcast<compute::compute_stream_t *>(ctx.stream());
 
-//     auto rnn_pd = this->pd();
+    auto rnn_pd = this->pd();
 
-//     const conf_t &rnn = this->pd()->rnn_conf;
+    const conf_t &rnn = this->pd()->rnn_conf;
 
-//     dim_t n_layer = rnn.n_layer;
-//     dim_t n_dir = rnn.n_dir;
-//     dim_t n_states = rnn.n_states;
-//     dim_t n_iter = rnn.n_iter;
-//     dim_t n_gates = rnn.n_gates;
-//     dim_t n_bias = rnn.n_bias;
-//     dim_t batch = rnn.mb;
-//     dim_t slc = rnn.slc;
-//     dim_t sic = rnn.sic;
-//     dim_t dhc = rnn.dhc;
-//     dim_t dlc = rnn.dlc;
+    dim_t n_layer = rnn.n_layer;
+    dim_t n_dir = rnn.n_dir;
+    dim_t n_states = rnn.n_states;
+    dim_t n_iter = rnn.n_iter;
+    dim_t n_gates = rnn.n_gates;
+    dim_t n_bias = rnn.n_bias;
+    dim_t batch = rnn.mb;
+    dim_t slc = rnn.slc;
+    dim_t sic = rnn.sic;
+    dim_t dhc = rnn.dhc;
+    dim_t dlc = rnn.dlc;
 
-//     bool is_fwd = rnn.is_fwd;
-//     bool is_vanilla_gru = rnn.is_vanilla_gru;
+    bool is_fwd = rnn.is_fwd;
+    bool is_vanilla_gru = rnn.is_vanilla_gru;
 
-//     auto &src_layer_native_ = CTX_IN_STORAGE(DNNL_ARG_SRC_LAYER);
-//     auto &src_iter_native_ = CTX_IN_STORAGE(DNNL_ARG_SRC_ITER);
-//     auto &src_c_iter_native_ = CTX_IN_STORAGE(DNNL_ARG_SRC_ITER_C);
-//     auto &wei_layer_native_ = CTX_IN_STORAGE(DNNL_ARG_WEIGHTS_LAYER);
-//     auto &wei_iter_native_ = CTX_IN_STORAGE(DNNL_ARG_WEIGHTS_ITER);
-//     auto &bias_native_ = CTX_IN_STORAGE(DNNL_ARG_BIAS);
+    auto &src_layer_native_ = CTX_IN_STORAGE(DNNL_ARG_SRC_LAYER);
+    auto &src_iter_native_ = CTX_IN_STORAGE(DNNL_ARG_SRC_ITER);
+    auto &src_c_iter_native_ = CTX_IN_STORAGE(DNNL_ARG_SRC_ITER_C);
+    auto &wei_layer_native_ = CTX_IN_STORAGE(DNNL_ARG_WEIGHTS_LAYER);
+    auto &wei_iter_native_ = CTX_IN_STORAGE(DNNL_ARG_WEIGHTS_ITER);
+    auto &bias_native_ = CTX_IN_STORAGE(DNNL_ARG_BIAS);
 
-//     auto &dst_last_layer_native_ = is_fwd ? CTX_OUT_STORAGE(DNNL_ARG_DST_LAYER)
-//                                           : CTX_IN_STORAGE(DNNL_ARG_DST_LAYER);
-//     auto &dst_last_iter_native_ = is_fwd ? CTX_OUT_STORAGE(DNNL_ARG_DST_ITER)
-//                                          : CTX_IN_STORAGE(DNNL_ARG_DST_ITER);
-//     auto &dst_last_iter_c_native_ = is_fwd
-//             ? CTX_OUT_STORAGE(DNNL_ARG_DST_ITER_C)
-//             : CTX_IN_STORAGE(DNNL_ARG_DST_ITER_C);
+    auto &dst_last_layer_native_ = is_fwd ? CTX_OUT_STORAGE(DNNL_ARG_DST_LAYER)
+                                          : CTX_IN_STORAGE(DNNL_ARG_DST_LAYER);
+    auto &dst_last_iter_native_ = is_fwd ? CTX_OUT_STORAGE(DNNL_ARG_DST_ITER)
+                                         : CTX_IN_STORAGE(DNNL_ARG_DST_ITER);
+    auto &dst_last_iter_c_native_ = is_fwd
+            ? CTX_OUT_STORAGE(DNNL_ARG_DST_ITER_C)
+            : CTX_IN_STORAGE(DNNL_ARG_DST_ITER_C);
 
-//     auto &diff_dst_layer_native_ = CTX_IN_STORAGE(DNNL_ARG_DIFF_DST_LAYER);
-//     auto &diff_dst_iter_native_ = CTX_IN_STORAGE(DNNL_ARG_DIFF_DST_ITER);
-//     auto &diff_dst_iter_c_native_ = CTX_IN_STORAGE(DNNL_ARG_DIFF_DST_ITER_C);
+    auto &diff_dst_layer_native_ = CTX_IN_STORAGE(DNNL_ARG_DIFF_DST_LAYER);
+    auto &diff_dst_iter_native_ = CTX_IN_STORAGE(DNNL_ARG_DIFF_DST_ITER);
+    auto &diff_dst_iter_c_native_ = CTX_IN_STORAGE(DNNL_ARG_DIFF_DST_ITER_C);
 
-//     auto scratch_workspace
-//             = ctx.get_scratchpad_grantor().get_memory_storage(key_rnn_space);
-//     auto &workspace_ = rnn.is_training ? is_fwd
-//                     ? CTX_OUT_STORAGE(DNNL_ARG_WORKSPACE)
-//                     : CTX_IN_STORAGE(DNNL_ARG_WORKSPACE)
-//                                        : *scratch_workspace;
-//     const auto &workspace = rnn_utils::workspace_t(workspace_, rnn);
+    auto scratch_workspace
+            = ctx.get_scratchpad_grantor().get_memory_storage(key_rnn_space);
+    auto &workspace_ = rnn.is_training ? is_fwd
+                    ? CTX_OUT_STORAGE(DNNL_ARG_WORKSPACE)
+                    : CTX_IN_STORAGE(DNNL_ARG_WORKSPACE)
+                                       : *scratch_workspace;
+    const auto &workspace = rnn_utils::workspace_t(workspace_, rnn);
 
-//     const auto scratch
-//             = rnn_utils::scratch_t(rnn, ctx.get_scratchpad_grantor());
+    const auto scratch
+            = rnn_utils::scratch_t(rnn, ctx.get_scratchpad_grantor());
 
-//     auto &diff_src_layer_native_ = CTX_OUT_STORAGE(DNNL_ARG_DIFF_SRC_LAYER);
-//     auto &diff_src_iter_native_ = CTX_OUT_STORAGE(DNNL_ARG_DIFF_SRC_ITER);
-//     auto &diff_src_iter_c_native_ = CTX_OUT_STORAGE(DNNL_ARG_DIFF_SRC_ITER_C);
+    auto &diff_src_layer_native_ = CTX_OUT_STORAGE(DNNL_ARG_DIFF_SRC_LAYER);
+    auto &diff_src_iter_native_ = CTX_OUT_STORAGE(DNNL_ARG_DIFF_SRC_ITER);
+    auto &diff_src_iter_c_native_ = CTX_OUT_STORAGE(DNNL_ARG_DIFF_SRC_ITER_C);
 
-//     auto &diff_weights_layer_native_
-//             = CTX_OUT_STORAGE(DNNL_ARG_DIFF_WEIGHTS_LAYER);
-//     auto &diff_weights_iter_native_
-//             = CTX_OUT_STORAGE(DNNL_ARG_DIFF_WEIGHTS_ITER);
-//     auto &diff_bias_native_ = CTX_OUT_STORAGE(DNNL_ARG_DIFF_BIAS);
+    auto &diff_weights_layer_native_
+            = CTX_OUT_STORAGE(DNNL_ARG_DIFF_WEIGHTS_LAYER);
+    auto &diff_weights_iter_native_
+            = CTX_OUT_STORAGE(DNNL_ARG_DIFF_WEIGHTS_ITER);
+    auto &diff_bias_native_ = CTX_OUT_STORAGE(DNNL_ARG_DIFF_BIAS);
 
-//     const rnn_utils::user_data_t user_data(src_layer_native_, wei_layer_native_,
-//             wei_iter_native_, bias_native_, diff_src_layer_native_,
-//             diff_dst_layer_native_, diff_weights_layer_native_,
-//             diff_weights_iter_native_, rnn, pd()->off);
+    const rnn_utils::user_data_t user_data(src_layer_native_, wei_layer_native_,
+            wei_iter_native_, bias_native_, diff_src_layer_native_,
+            diff_dst_layer_native_, diff_weights_layer_native_,
+            diff_weights_iter_native_, rnn, pd()->off);
 
-//     DPRINT("\n%s\n", "+++++++++++++++");
-//     DPRINT(" aprop = %d\n", (int)aprop);
-//     DPRINT("%s\n", "+++++++++++++++");
-//     DPRINT("  n_layer         = %lld\n", into<long long>(n_layer));
-//     DPRINT("  n_dir           = %lld\n", into<long long>(n_dir));
-//     DPRINT("  n_iter          = %lld\n", into<long long>(n_iter));
-//     DPRINT("  n_gates         = %lld\n", into<long long>(n_gates));
-//     DPRINT("  n_bias          = %lld\n", into<long long>(n_bias));
-//     DPRINT("  n_states        = %lld\n", into<long long>(n_states));
-//     DPRINT("  n_weights_layer = %lld\n", into<long long>(rnn_pd->SLC()));
-//     DPRINT("  n_weights_iter  = %lld\n", into<long long>(rnn_pd->SIC()));
-//     DPRINT("  batch           = %lld\n", into<long long>(batch));
-//     DPRINT("  slc             = %lld\n", into<long long>(slc));
-//     DPRINT("  sic             = %lld\n", into<long long>(sic));
-//     DPRINT("  dhc             = %lld\n", into<long long>(dhc));
-//     DPRINT("  dlc             = %lld\n", into<long long>(dlc));
-//     DPRINT("%s\n", "+++++++++++++++");
-//     DPRINT("  is_fwd          = %s\n", is_fwd ? "yes" : "no");
-//     DPRINT("  is_vanilla_gru  = %s\n", is_vanilla_gru ? "yes" : "no");
-//     DPRINT("  use_workspace   = %s\n", rnn.use_workspace ? "yes" : "no");
-//     DPRINT("%s\n", "+++++++++++++++");
-//     DPRINT("  with_src_iter   = %s\n", rnn_pd->with_src_iter() ? "yes" : "no");
-//     DPRINT("  with_src_iter_c = %s\n",
-//             rnn_pd->with_src_iter_c() ? "yes" : "no");
-//     DPRINT("  with_bias       = %s\n", rnn_pd->with_bias() ? "yes" : "no");
-//     DPRINT("  with_dst_iter   = %s\n", rnn_pd->with_dst_iter() ? "yes" : "no");
-//     DPRINT("  with_dst_iter_c = %s\n",
-//             rnn_pd->with_dst_iter_c() ? "yes" : "no");
-//     DPRINT("%s\n", "+++++++++++++++");
+    DPRINT("\n%s\n", "+++++++++++++++");
+    DPRINT(" aprop = %d\n", (int)aprop);
+    DPRINT("%s\n", "+++++++++++++++");
+    DPRINT("  n_layer         = %lld\n", into<long long>(n_layer));
+    DPRINT("  n_dir           = %lld\n", into<long long>(n_dir));
+    DPRINT("  n_iter          = %lld\n", into<long long>(n_iter));
+    DPRINT("  n_gates         = %lld\n", into<long long>(n_gates));
+    DPRINT("  n_bias          = %lld\n", into<long long>(n_bias));
+    DPRINT("  n_states        = %lld\n", into<long long>(n_states));
+    DPRINT("  n_weights_layer = %lld\n", into<long long>(rnn_pd->SLC()));
+    DPRINT("  n_weights_iter  = %lld\n", into<long long>(rnn_pd->SIC()));
+    DPRINT("  batch           = %lld\n", into<long long>(batch));
+    DPRINT("  slc             = %lld\n", into<long long>(slc));
+    DPRINT("  sic             = %lld\n", into<long long>(sic));
+    DPRINT("  dhc             = %lld\n", into<long long>(dhc));
+    DPRINT("  dlc             = %lld\n", into<long long>(dlc));
+    DPRINT("%s\n", "+++++++++++++++");
+    DPRINT("  is_fwd          = %s\n", is_fwd ? "yes" : "no");
+    DPRINT("  is_vanilla_gru  = %s\n", is_vanilla_gru ? "yes" : "no");
+    DPRINT("  use_workspace   = %s\n", rnn.use_workspace ? "yes" : "no");
+    DPRINT("%s\n", "+++++++++++++++");
+    DPRINT("  with_src_iter   = %s\n", rnn_pd->with_src_iter() ? "yes" : "no");
+    DPRINT("  with_src_iter_c = %s\n",
+            rnn_pd->with_src_iter_c() ? "yes" : "no");
+    DPRINT("  with_bias       = %s\n", rnn_pd->with_bias() ? "yes" : "no");
+    DPRINT("  with_dst_iter   = %s\n", rnn_pd->with_dst_iter() ? "yes" : "no");
+    DPRINT("  with_dst_iter_c = %s\n",
+            rnn_pd->with_dst_iter_c() ? "yes" : "no");
+    DPRINT("%s\n", "+++++++++++++++");
 
-//     // TODO: implement without copies
-//     bool is_lr = !one_of(rnn.exec_dir, r2l, r2l);
-//     bool is_rl = !one_of(rnn.exec_dir, l2r, l2r);
+    // TODO: implement without copies
+    bool is_lr = !one_of(rnn.exec_dir, r2l, r2l);
+    bool is_rl = !one_of(rnn.exec_dir, l2r, l2r);
 
-//     const memory_storage_t *scales_buf = nullptr;
-//     if (pd()->rnn_conf.is_int8 && pd()->rnn_conf.copy_bias) {
-//         scales_buf = &CTX_GPU_RES_STORAGE(SCALES_);
-//     }
+    const memory_storage_t *scales_buf = nullptr;
+    if (pd()->rnn_conf.is_int8 && pd()->rnn_conf.copy_bias) {
+        scales_buf = &CTX_GPU_RES_STORAGE(SCALES_);
+    }
 
-//     // bias prepare if needed
-//     if (rnn.copy_bias) {
-//         CHECK(bias_prepare(ctx, compute_stream, n_layer, n_dir, n_bias, n_gates,
-//                 dhc, workspace.bias(), *scales_buf, wei_layer_native_,
-//                 wei_iter_native_, user_data.bias()));
-//     }
+    // bias prepare if needed
+    if (rnn.copy_bias) {
+        CHECK(bias_prepare(ctx, n_layer, n_dir, n_bias, n_gates,
+                dhc, workspace.bias(), *scales_buf, wei_layer_native_,
+                wei_iter_native_, user_data.bias()));
+    }
 
-//     float shift = (pd()->attr()->rnn_data_qparams_.shift_);
-//     float scale = (pd()->attr()->rnn_data_qparams_.scale_);
+    float shift = (pd()->attr()->rnn_data_qparams_.shift_);
+    float scale = (pd()->attr()->rnn_data_qparams_.scale_);
 
-//     if ((rnn.is_fwd && rnn.copy_src_layer)
-//             || (!rnn.is_fwd && rnn.copy_diff_dst_layer)) {
-//         CHECK(copy_init_layer(ctx, compute_stream, is_lr, is_rl, batch, dhc,
-//                 slc, n_iter, n_layer, n_dir, n_states, rnn.states_ws_ld,
-//                 rnn.scratch_diff_states_ld, workspace.states(),
-//                 scratch.diff_states(), src_layer_native_,
-//                 diff_dst_layer_native_));
-//     }
-//     const bool quantize = pd()->with_src_iter()
-//             && pd()->src_md(1)->data_type == data_type::f32 && rnn.is_int8;
-//     CHECK(copy_init_iter(ctx, compute_stream, batch, dhc, sic, n_iter, n_layer,
-//             n_dir, n_states, rnn.states_ws_ld, rnn.scratch_diff_states_ld,
-//             workspace, scratch.diff_states(), src_iter_native_,
-//             src_c_iter_native_, diff_dst_iter_native_, diff_dst_iter_c_native_,
-//             shift, scale, quantize));
+    if ((rnn.is_fwd && rnn.copy_src_layer)
+            || (!rnn.is_fwd && rnn.copy_diff_dst_layer)) {
+        CHECK(copy_init_layer(ctx, is_lr, is_rl, batch, dhc,
+                slc, n_iter, n_layer, n_dir, n_states, rnn.states_ws_ld,
+                rnn.scratch_diff_states_ld, workspace.states(),
+                scratch.diff_states(), src_layer_native_,
+                diff_dst_layer_native_));
+    }
+    const bool quantize = pd()->with_src_iter()
+            && pd()->src_md(1)->data_type == data_type::f32 && rnn.is_int8;
+    CHECK(copy_init_iter(ctx, batch, dhc, sic, n_iter, n_layer,
+            n_dir, n_states, rnn.states_ws_ld, rnn.scratch_diff_states_ld,
+            workspace, scratch.diff_states(), src_iter_native_,
+            src_c_iter_native_, diff_dst_iter_native_, diff_dst_iter_c_native_,
+            shift, scale, quantize));
 
-//     const memory_storage_t *tm_scales_buf = nullptr;
-//     if (pd()->rnn_conf.is_testmode && pd_->attr()->rnn_tparams_.scales_) {
-//         tm_scales_buf = &CTX_GPU_RES_STORAGE(TM_SCALES_);
-//     }
+    const memory_storage_t *tm_scales_buf = nullptr;
+    if (pd()->rnn_conf.is_testmode && pd_->attr()->rnn_tparams_.scales_) {
+        tm_scales_buf = &CTX_GPU_RES_STORAGE(TM_SCALES_);
+    }
 
-//     // run the execution on the grid
-//     CHECK((this->*grid_computation)(engine, ctx, user_data, workspace, scratch,
-//             diff_bias_native_, scales_buf, tm_scales_buf));
+    // run the execution on the grid
+    CHECK((this->*grid_computation)(engine, ctx, user_data, workspace, scratch,
+            diff_bias_native_, scales_buf, tm_scales_buf));
 
-//     // Finally we copy the results to the result buffers
+    // Finally we copy the results to the result buffers
 
-//     if (rnn.is_fwd || rnn.copy_diff_src_layer) {
-//         const bool dequantize_l
-//                 = pd()->dst_md(0)->data_type == data_type::f32 && rnn.is_int8;
-//         CHECK(copy_res_layer(ctx, compute_stream, is_lr, is_rl, batch, dhc, slc,
-//                 n_iter, n_layer, n_dir, n_states, rnn.states_ws_ld,
-//                 rnn.scratch_diff_states_ld, scratch.diff_states(),
-//                 dst_last_layer_native_, diff_src_layer_native_,
-//                 workspace.states(), shift, scale, dequantize_l));
-//     }
-//     const bool dequantize_i = pd()->with_dst_iter()
-//             && pd()->dst_md(1)->data_type == data_type::f32 && rnn.is_int8;
-//     CHECK(copy_res_iter(ctx, compute_stream, batch, dhc, sic, n_iter, n_layer,
-//             n_dir, n_states, rnn.states_ws_ld, rnn.scratch_diff_states_ld,
-//             scratch.diff_states(), dst_last_iter_native_,
-//             dst_last_iter_c_native_, diff_src_iter_native_,
-//             diff_src_iter_c_native_, workspace, shift, scale, dequantize_i));
+    if (rnn.is_fwd || rnn.copy_diff_src_layer) {
+        const bool dequantize_l
+                = pd()->dst_md(0)->data_type == data_type::f32 && rnn.is_int8;
+        CHECK(copy_res_layer(ctx, is_lr, is_rl, batch, dhc, slc,
+                n_iter, n_layer, n_dir, n_states, rnn.states_ws_ld,
+                rnn.scratch_diff_states_ld, scratch.diff_states(),
+                dst_last_layer_native_, diff_src_layer_native_,
+                workspace.states(), shift, scale, dequantize_l));
+    }
+    const bool dequantize_i = pd()->with_dst_iter()
+            && pd()->dst_md(1)->data_type == data_type::f32 && rnn.is_int8;
+    CHECK(copy_res_iter(ctx, batch, dhc, sic, n_iter, n_layer,
+            n_dir, n_states, rnn.states_ws_ld, rnn.scratch_diff_states_ld,
+            scratch.diff_states(), dst_last_iter_native_,
+            dst_last_iter_c_native_, diff_src_iter_native_,
+            diff_src_iter_c_native_, workspace, shift, scale, dequantize_i));
 
-//     return status::success;
-// };
+    return status::success;
+};
 // Fix for MSVS warning C4661.
 template <>
 cell_execution_sig(ref_rnn_fwd_t::cell_execution);

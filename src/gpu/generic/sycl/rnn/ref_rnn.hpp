@@ -55,8 +55,9 @@ enum gemm_kind_t {
 };
 
 template <prop_kind_t aprop>
-struct _ref_rnn_common_t : public gpu::generic::sycl::primitive_t {
-    using gpu::generic::sycl::primitive_t::primitive_t;
+// TODO fix inheritance issue (Not inheriting from sycl primitive_t currently)
+struct _ref_rnn_common_t : public gpu::primitive_t {
+    using gpu::primitive_t::primitive_t;
 
     using class_name = _ref_rnn_common_t<aprop>;
 
@@ -231,17 +232,17 @@ private:
 //     std::vector<compute::kernel_t> kernels_;
 
     // ptrs to GEMM primitives
-    std::shared_ptr<primitive_t> gemm_layer_fwd_;
-    std::shared_ptr<primitive_t> gemm_layer_fwd_src_;
-    std::shared_ptr<primitive_t> gemm_iter_fwd_;
-    std::shared_ptr<primitive_t> gemm_iter_fwd_2_;
-    std::shared_ptr<primitive_t> gemm_layer_bwd_;
-    std::shared_ptr<primitive_t> gemm_iter_bwd_;
-    std::shared_ptr<primitive_t> gemm_iter_bwd_2_;
-    std::shared_ptr<primitive_t> gemm_diff_wei_layer_;
-    std::shared_ptr<primitive_t> gemm_diff_wei_layer_src_;
-    std::shared_ptr<primitive_t> gemm_diff_wei_iter_;
-    std::shared_ptr<primitive_t> gemm_diff_wei_iter_2_;
+    std::shared_ptr<impl::primitive_t> gemm_layer_fwd_;
+    std::shared_ptr<impl::primitive_t> gemm_layer_fwd_src_;
+    std::shared_ptr<impl::primitive_t> gemm_iter_fwd_;
+    std::shared_ptr<impl::primitive_t> gemm_iter_fwd_2_;
+    std::shared_ptr<impl::primitive_t> gemm_layer_bwd_;
+    std::shared_ptr<impl::primitive_t> gemm_iter_bwd_;
+    std::shared_ptr<impl::primitive_t> gemm_iter_bwd_2_;
+    std::shared_ptr<impl::primitive_t> gemm_diff_wei_layer_;
+    std::shared_ptr<impl::primitive_t> gemm_diff_wei_layer_src_;
+    std::shared_ptr<impl::primitive_t> gemm_diff_wei_iter_;
+    std::shared_ptr<impl::primitive_t> gemm_diff_wei_iter_2_;
 
     // offset variables set in workspace and used in offset calculations for
     // grid & cell execution and fwd & bwd kernel macros
