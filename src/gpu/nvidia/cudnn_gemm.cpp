@@ -31,13 +31,16 @@ status_t cudnn_gemm_t::execute(const intel::gemm_exec_ctx_t &ctx) const {
                 ctx.args().b->clone());
     memory_t c(ctx.stream()->engine(), pd()->mm_pd_->dst_md(),
                 ctx.args().c->clone());
-    memory_t bias(ctx.stream()->engine(), pd()->mm_pd_->src_md(2),
-                ctx.args().bias->clone());
-
+    
     mm_args[DNNL_ARG_SRC] = {&b, true};
     mm_args[DNNL_ARG_WEIGHTS] = {&a, true};
     mm_args[DNNL_ARG_DST] = {&c, false};
-    mm_args[DNNL_ARG_BIAS] = {&bias, true};
+    
+    if (ctx.args().bias){
+        memory_t bias(ctx.stream()->engine(), pd()->mm_pd_->src_md(2),
+                    ctx.args().bias->clone());
+        mm_args[DNNL_ARG_BIAS] = {&bias, true};
+    }
 
     auto mm_exec_ctx = ctx.into_exec_ctx_t(std::move(mm_args));
     auto status = matmul_->execute(mm_exec_ctx);
