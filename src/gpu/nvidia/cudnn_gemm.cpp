@@ -25,13 +25,22 @@ namespace nvidia {
 
 status_t cudnn_gemm_t::execute(const intel::gemm_exec_ctx_t &ctx) const {
     exec_args_t mm_args;
-    mm_args[DNNL_ARG_SRC] = ctx.args().exec_args.at(DNNL_ARG_SRC_1);
-    mm_args[DNNL_ARG_WEIGHTS] = ctx.args().exec_args.at(DNNL_ARG_SRC_0);
-    mm_args[DNNL_ARG_DST] = ctx.args().exec_args.at(DNNL_ARG_DST);
-    mm_args[DNNL_ARG_BIAS] = ctx.args().exec_args.at(DNNL_ARG_SRC_2);
+    memory_t a(ctx.stream()->engine(), pd()->mm_pd_->src_md(0),
+                ctx.args().a->clone());
+    memory_t b(ctx.stream()->engine(), pd()->mm_pd_->src_md(1),
+                ctx.args().b->clone());
+    memory_t c(ctx.stream()->engine(), pd()->mm_pd_->dst_md(),
+                ctx.args().c->clone());
+    memory_t bias(ctx.stream()->engine(), pd()->mm_pd_->src_md(2),
+                ctx.args().bias->clone());
 
-    exec_ctx_t mm_ctx(ctx.stream(), std::move(mm_args));
-    auto status = matmul_->execute(mm_ctx);
+    mm_args[DNNL_ARG_SRC] = {&b, true};
+    mm_args[DNNL_ARG_WEIGHTS] = {&a, true};
+    mm_args[DNNL_ARG_DST] = {&c, false};
+    mm_args[DNNL_ARG_BIAS] = {&bias, true};
+
+    auto mm_exec_ctx = ctx.into_exec_ctx_t(std::move(mm_args));
+    auto status = matmul_->execute(mm_exec_ctx);
 //     if (exec_d->batch() == 0 || exec_d->n() == 0) return status::success;
 
 //     dim_t off_a0 = a.offset() / types::data_type_size(exec_d->a_type());
