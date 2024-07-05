@@ -61,143 +61,142 @@ using namespace dnnl::impl::memory_tracking::names;
 
 #define AOC array_offset_calculator
 
-// static status_t init_ocl_conf(rnn_utils::ocl_conf_t &ocl_conf,
-//         const rnn_pd_t *rnn_pd, const rnn_utils::conf_t &rnn,
-//         const compute::device_info_t &device_info,
-//         const memory_desc_wrapper &src_layer_d,
-//         const memory_desc_wrapper &src_iter_d,
-//         const memory_desc_wrapper &src_iter_c_d,
-//         const memory_desc_wrapper &weights_layer_d,
-//         const memory_desc_wrapper &weights_iter_d,
-//         const memory_desc_wrapper &bias_d,
-//         const memory_desc_wrapper &dst_layer_d,
-//         const memory_desc_wrapper &dst_iter_d,
-//         const memory_desc_wrapper &dst_iter_c_d,
-//         const memory_desc_wrapper &diff_src_layer_d,
-//         const memory_desc_wrapper &diff_src_iter_d,
-//         const memory_desc_wrapper &diff_src_iter_c_d,
-//         const memory_desc_wrapper &diff_weights_layer_d,
-//         const memory_desc_wrapper &diff_weights_iter_d,
-//         const memory_desc_wrapper &diff_bias_d,
-//         const memory_desc_wrapper &diff_dst_layer_d,
-//         const memory_desc_wrapper &diff_dst_iter_d,
-//         const memory_desc_wrapper &diff_dst_iter_c_d,
-//         const memory_desc_wrapper &ws_d, rnn_offsets_t &off) {
+static status_t init_ocl_conf(
+        const rnn_pd_t *rnn_pd, const rnn_utils::conf_t &rnn,
+        const memory_desc_wrapper &src_layer_d,
+        const memory_desc_wrapper &src_iter_d,
+        const memory_desc_wrapper &src_iter_c_d,
+        const memory_desc_wrapper &weights_layer_d,
+        const memory_desc_wrapper &weights_iter_d,
+        const memory_desc_wrapper &bias_d,
+        const memory_desc_wrapper &dst_layer_d,
+        const memory_desc_wrapper &dst_iter_d,
+        const memory_desc_wrapper &dst_iter_c_d,
+        const memory_desc_wrapper &diff_src_layer_d,
+        const memory_desc_wrapper &diff_src_iter_d,
+        const memory_desc_wrapper &diff_src_iter_c_d,
+        const memory_desc_wrapper &diff_weights_layer_d,
+        const memory_desc_wrapper &diff_weights_iter_d,
+        const memory_desc_wrapper &diff_bias_d,
+        const memory_desc_wrapper &diff_dst_layer_d,
+        const memory_desc_wrapper &diff_dst_iter_d,
+        const memory_desc_wrapper &diff_dst_iter_c_d,
+        const memory_desc_wrapper &ws_d, rnn_offsets_t &off) {
 
-//     using namespace rnn_utils;
+    using namespace rnn_utils;
 
-//     ocl_conf.src_dt = rnn.src_data_type;
-//     ocl_conf.src_c_dt = src_iter_c_d.data_type();
-//     ocl_conf.wei_dt = weights_layer_d.data_type();
-//     ocl_conf.bia_dt = rnn.bias_data_type;
-//     ocl_conf.acc_dt = rnn.acc_data_type;
-//     ocl_conf.aux_dt = rnn.aux_data_type;
-//     ocl_conf.diff_dt = rnn.diff_data_type;
-//     ocl_conf.input_dt = rnn.input_data_type;
-//     ocl_conf.output_dt = rnn.output_data_type;
-//     ocl_conf.dst_dt = rnn.dst_data_type;
-//     ocl_conf.dst_c_dt = dst_iter_c_d.data_type();
+    auto src_dt = rnn.src_data_type;
+    auto src_c_dt = src_iter_c_d.data_type();
+    auto wei_dt = weights_layer_d.data_type();
+    auto bia_dt = rnn.bias_data_type;
+    auto acc_dt = rnn.acc_data_type;
+    auto aux_dt = rnn.aux_data_type;
+    auto diff_dt = rnn.diff_data_type;
+    auto input_dt = rnn.input_data_type;
+    auto output_dt = rnn.output_data_type;
+    auto dst_dt = rnn.dst_data_type;
+    auto dst_c_dt = dst_iter_c_d.data_type();
 
-//     ocl_conf.is_fwd = rnn.is_fwd;
+    auto is_fwd = rnn.is_fwd;
 
-//     ocl_conf.with_bias = rnn_pd->with_bias();
-//     ocl_conf.with_src_iter = rnn_pd->with_src_iter();
-//     ocl_conf.with_src_iter_c = rnn_pd->with_src_iter_c();
-//     ocl_conf.with_dst_iter = rnn_pd->with_dst_iter();
-//     ocl_conf.with_dst_iter_c = rnn_pd->with_dst_iter_c();
-//     ocl_conf.copy_bias = rnn.copy_bias;
-//     ocl_conf.is_int8 = rnn.is_int8;
-//     ocl_conf.is_training = rnn.is_training;
-//     ocl_conf.recompute_gates = rnn.recompute_gates;
-//     ocl_conf.copy_src_layer = rnn.copy_src_layer;
-//     ocl_conf.copy_diff_dst_layer = rnn.copy_diff_dst_layer;
-//     ocl_conf.copy_diff_src_layer = rnn.copy_diff_src_layer;
+    auto with_bias = rnn_pd->with_bias();
+    auto with_src_iter = rnn_pd->with_src_iter();
+    auto with_src_iter_c = rnn_pd->with_src_iter_c();
+    auto with_dst_iter = rnn_pd->with_dst_iter();
+    auto with_dst_iter_c = rnn_pd->with_dst_iter_c();
+    auto copy_bias = rnn.copy_bias;
+    auto is_int8 = rnn.is_int8;
+    auto is_training = rnn.is_training;
+    auto recompute_gates = rnn.recompute_gates;
+    auto copy_src_layer = rnn.copy_src_layer;
+    auto copy_diff_dst_layer = rnn.copy_diff_dst_layer;
+    auto copy_diff_src_layer = rnn.copy_diff_src_layer;
 
-//     if (!rnn.is_fwd) {
-//         if (!utils::everyone_is(ocl_conf.diff_dt, diff_src_layer_d.data_type(),
-//                     diff_dst_layer_d.data_type()))
-//             return status::unimplemented;
-//         if (!utils::one_of(diff_src_iter_d.data_type(), ocl_conf.diff_dt,
-//                     data_type::undef)
-//                 || !utils::one_of(diff_src_iter_c_d.data_type(),
-//                         ocl_conf.diff_dt, data_type::undef)
-//                 || !utils::one_of(diff_dst_iter_d.data_type(), ocl_conf.diff_dt,
-//                         data_type::undef)
-//                 || !utils::one_of(diff_dst_iter_c_d.data_type(),
-//                         ocl_conf.diff_dt, data_type::undef))
-//             return status::unimplemented;
-//     }
+    if (!rnn.is_fwd) {
+        if (!utils::everyone_is(diff_dt, diff_src_layer_d.data_type(),
+                    diff_dst_layer_d.data_type()))
+            return status::unimplemented;
+        if (!utils::one_of(diff_src_iter_d.data_type(), diff_dt,
+                    data_type::undef)
+                || !utils::one_of(diff_src_iter_c_d.data_type(),
+                        diff_dt, data_type::undef)
+                || !utils::one_of(diff_dst_iter_d.data_type(), diff_dt,
+                        data_type::undef)
+                || !utils::one_of(diff_dst_iter_c_d.data_type(),
+                        diff_dt, data_type::undef))
+            return status::unimplemented;
+    }
 
-//     off.src_layer = gpu::intel::get_outer_strides(src_layer_d);
+    off.src_layer = gpu::intel::get_outer_strides(src_layer_d);
 //     ocl_conf.inner_layouts.src_layer
 //             = gpu::intel::get_inner_layout(src_layer_d);
-//     off.src_iter = gpu::intel::get_outer_strides(src_iter_d);
+    off.src_iter = gpu::intel::get_outer_strides(src_iter_d);
 //     ocl_conf.inner_layouts.src_iter = gpu::intel::get_inner_layout(src_iter_d);
-//     if (ocl_conf.with_src_iter_c) {
-//         off.src_iter_c = gpu::intel::get_outer_strides(src_iter_c_d);
-//         ocl_conf.inner_layouts.src_iter_c
-//                 = gpu::intel::get_inner_layout(src_iter_c_d);
-//     }
-//     off.weights_layer = gpu::intel::get_outer_strides(weights_layer_d);
+    if (with_src_iter_c) {
+        off.src_iter_c = gpu::intel::get_outer_strides(src_iter_c_d);
+        // ocl_conf.inner_layouts.src_iter_c
+        //         = gpu::intel::get_inner_layout(src_iter_c_d);
+    }
+    off.weights_layer = gpu::intel::get_outer_strides(weights_layer_d);
 //     ocl_conf.inner_layouts.weights_layer
 //             = gpu::intel::get_inner_layout(weights_layer_d);
-//     off.weights_layer_comp_off
-//             = weights_layer_d.dims()[0] * weights_layer_d.strides()[0];
-//     off.weights_iter = gpu::intel::get_outer_strides(weights_iter_d);
+    off.weights_layer_comp_off
+            = weights_layer_d.dims()[0] * weights_layer_d.strides()[0];
+    off.weights_iter = gpu::intel::get_outer_strides(weights_iter_d);
 //     ocl_conf.inner_layouts.weights_iter
 //             = gpu::intel::get_inner_layout(weights_iter_d);
-//     off.weights_iter_comp_off
-//             = weights_iter_d.dims()[0] * weights_iter_d.strides()[0];
-//     off.bias = gpu::intel::get_outer_strides(bias_d);
+    off.weights_iter_comp_off
+            = weights_iter_d.dims()[0] * weights_iter_d.strides()[0];
+    off.bias = gpu::intel::get_outer_strides(bias_d);
 //     ocl_conf.inner_layouts.bias = gpu::intel::get_inner_layout(bias_d);
-//     off.dst_layer = gpu::intel::get_outer_strides(dst_layer_d);
+    off.dst_layer = gpu::intel::get_outer_strides(dst_layer_d);
 //     ocl_conf.inner_layouts.dst_layer
 //             = gpu::intel::get_inner_layout(dst_layer_d);
-//     off.dst_iter = gpu::intel::get_outer_strides(dst_iter_d);
+    off.dst_iter = gpu::intel::get_outer_strides(dst_iter_d);
 //     ocl_conf.inner_layouts.dst_iter = gpu::intel::get_inner_layout(dst_iter_d);
-//     if (ocl_conf.with_dst_iter_c) {
-//         off.dst_iter_c = gpu::intel::get_outer_strides(dst_iter_c_d);
-//         ocl_conf.inner_layouts.dst_iter_c
-//                 = gpu::intel::get_inner_layout(dst_iter_c_d);
-//     }
+    if (with_dst_iter_c) {
+        off.dst_iter_c = gpu::intel::get_outer_strides(dst_iter_c_d);
+        // ocl_conf.inner_layouts.dst_iter_c
+        //         = gpu::intel::get_inner_layout(dst_iter_c_d);
+    }
 
-//     if (!ocl_conf.is_fwd) {
-//         off.diff_src_layer = gpu::intel::get_outer_strides(diff_src_layer_d);
-//         ocl_conf.inner_layouts.diff_src_layer
-//                 = gpu::intel::get_inner_layout(diff_src_layer_d);
-//         off.diff_src_iter = gpu::intel::get_outer_strides(diff_src_iter_d);
-//         ocl_conf.inner_layouts.diff_src_iter
-//                 = gpu::intel::get_inner_layout(diff_src_iter_d);
-//         if (ocl_conf.with_src_iter_c) {
-//             off.diff_src_iter_c
-//                     = gpu::intel::get_outer_strides(diff_src_iter_c_d);
-//             ocl_conf.inner_layouts.diff_src_iter_c
-//                     = gpu::intel::get_inner_layout(diff_src_iter_c_d);
-//         }
-//         off.diff_weights_layer
-//                 = gpu::intel::get_outer_strides(diff_weights_layer_d);
-//         ocl_conf.inner_layouts.diff_weights_layer
-//                 = gpu::intel::get_inner_layout(diff_weights_layer_d);
-//         off.diff_weights_iter
-//                 = gpu::intel::get_outer_strides(diff_weights_iter_d);
-//         ocl_conf.inner_layouts.diff_weights_iter
-//                 = gpu::intel::get_inner_layout(diff_weights_iter_d);
-//         off.diff_bias = gpu::intel::get_outer_strides(diff_bias_d);
-//         ocl_conf.inner_layouts.diff_bias
-//                 = gpu::intel::get_inner_layout(diff_bias_d);
-//         off.diff_dst_layer = gpu::intel::get_outer_strides(diff_dst_layer_d);
-//         ocl_conf.inner_layouts.diff_dst_layer
-//                 = gpu::intel::get_inner_layout(diff_dst_layer_d);
-//         off.diff_dst_iter = gpu::intel::get_outer_strides(diff_dst_iter_d);
-//         ocl_conf.inner_layouts.diff_dst_iter
-//                 = gpu::intel::get_inner_layout(diff_dst_iter_d);
-//         if (ocl_conf.with_dst_iter_c) {
-//             off.diff_dst_iter_c
-//                     = gpu::intel::get_outer_strides(diff_dst_iter_c_d);
-//             ocl_conf.inner_layouts.diff_dst_iter_c
-//                     = gpu::intel::get_inner_layout(diff_dst_iter_c_d);
-//         }
-//     }
+    if (!is_fwd) {
+        off.diff_src_layer = gpu::intel::get_outer_strides(diff_src_layer_d);
+        // ocl_conf.inner_layouts.diff_src_layer
+        //         = gpu::intel::get_inner_layout(diff_src_layer_d);
+        off.diff_src_iter = gpu::intel::get_outer_strides(diff_src_iter_d);
+        // ocl_conf.inner_layouts.diff_src_iter
+        //         = gpu::intel::get_inner_layout(diff_src_iter_d);
+        if (with_src_iter_c) {
+            off.diff_src_iter_c
+                    = gpu::intel::get_outer_strides(diff_src_iter_c_d);
+        //     ocl_conf.inner_layouts.diff_src_iter_c
+        //             = gpu::intel::get_inner_layout(diff_src_iter_c_d);
+        }
+        off.diff_weights_layer
+                = gpu::intel::get_outer_strides(diff_weights_layer_d);
+        // ocl_conf.inner_layouts.diff_weights_layer
+        //         = gpu::intel::get_inner_layout(diff_weights_layer_d);
+        off.diff_weights_iter
+                = gpu::intel::get_outer_strides(diff_weights_iter_d);
+        // ocl_conf.inner_layouts.diff_weights_iter
+        //         = gpu::intel::get_inner_layout(diff_weights_iter_d);
+        off.diff_bias = gpu::intel::get_outer_strides(diff_bias_d);
+        // ocl_conf.inner_layouts.diff_bias
+        //         = gpu::intel::get_inner_layout(diff_bias_d);
+        off.diff_dst_layer = gpu::intel::get_outer_strides(diff_dst_layer_d);
+        // ocl_conf.inner_layouts.diff_dst_layer
+        //         = gpu::intel::get_inner_layout(diff_dst_layer_d);
+        off.diff_dst_iter = gpu::intel::get_outer_strides(diff_dst_iter_d);
+        // ocl_conf.inner_layouts.diff_dst_iter
+        //         = gpu::intel::get_inner_layout(diff_dst_iter_d);
+        if (with_dst_iter_c) {
+            off.diff_dst_iter_c
+                    = gpu::intel::get_outer_strides(diff_dst_iter_c_d);
+        //     ocl_conf.inner_layouts.diff_dst_iter_c
+        //             = gpu::intel::get_inner_layout(diff_dst_iter_c_d);
+        }
+    }
 
 //     ocl_conf.cell_kind = rnn_pd->cell_kind();
 //     ocl_conf.activation_kind = rnn_pd->activation_kind();
@@ -207,7 +206,8 @@ using namespace dnnl::impl::memory_tracking::names;
 //     ocl_conf.is_testmode = rnn.is_testmode;
 
 //     ocl_conf.threads_per_eu = 0; // Currently unset, to be set later
-//     ocl_conf.subgroup_size = dev_getenv(
+//     ocl_conf.subgroup_size = 32; // TODO
+//     dev_getenv(
 //             "subgroup_size", device_info.max_subgroup_size(ocl_conf.acc_dt));
 //     auto max_elemwise_threads
 //             = utils::div_up(rnn.mb * rnn.dhc, ocl_conf.subgroup_size);
@@ -234,7 +234,7 @@ using namespace dnnl::impl::memory_tracking::names;
 //         // Due to poor performing tail handling, exact divisibility on subgroup
 //         // size is preferred
 //         for (int subgroup_size = ocl_conf.subgroup_size;
-//                 subgroup_size >= device_info.min_subgroup_size();
+//                 subgroup_size >= 32; // TODO device_info.min_subgroup_size();
 //                 subgroup_size /= 2) {
 //             if (rnn.dhc % subgroup_size == 0) {
 //                 ocl_conf.subgroup_size = subgroup_size;
@@ -242,100 +242,100 @@ using namespace dnnl::impl::memory_tracking::names;
 //             }
 //         }
 
-//         int dhc_thr = dev_getenv("dhc_thr", 1);
-//         int mb_thr = dev_getenv("mb_thr", 1);
+        // int dhc_thr = dev_getenv("dhc_thr", 1);
+        // int mb_thr = dev_getenv("mb_thr", 1);
 
-//         std::array<dim_t, 9> dhc_hw_threads = {1, 2, 3, 4, 5, 6, 7, 8, 16};
-//         std::array<dim_t, 3> mb_hw_threads = {1, 2, 4};
-//         int dhc_tg_best = 1;
-//         int mb_tg_best = 1;
-//         double best_score = 0;
-//         for (auto b_thread : mb_hw_threads) {
-//             for (auto d_thread : dhc_hw_threads) {
-//                 dim_t dhc_tg = d_thread * ocl_conf.subgroup_size;
-//                 dim_t dhc_block = dhc_thr * dhc_tg;
-//                 dim_t mb_tg = b_thread;
-//                 dim_t mb_block = mb_thr * mb_tg;
+        // std::array<dim_t, 9> dhc_hw_threads = {1, 2, 3, 4, 5, 6, 7, 8, 16};
+        // std::array<dim_t, 3> mb_hw_threads = {1, 2, 4};
+        // int dhc_tg_best = 1;
+        // int mb_tg_best = 1;
+        // double best_score = 0;
+        // for (auto b_thread : mb_hw_threads) {
+        //     for (auto d_thread : dhc_hw_threads) {
+        //         dim_t dhc_tg = d_thread * ocl_conf.subgroup_size;
+        //         dim_t dhc_block = dhc_thr * dhc_tg;
+        //         dim_t mb_tg = b_thread;
+        //         dim_t mb_block = mb_thr * mb_tg;
 
-//                 double score = [&]() {
-//                     // subslice efficiency
-//                     dim_t used_b_threads
-//                             = std::min(utils::div_up(rnn.mb, mb_thr), b_thread);
-//                     dim_t used_d_threads = std::min(
-//                             utils::div_up(
-//                                     rnn.dhc, dhc_thr * ocl_conf.subgroup_size),
-//                             d_thread);
-//                     double ss_eff = 1.0 * (used_d_threads * used_b_threads)
-//                             / device_info.max_eus_per_wg();
-//                     {
-//                         // Scale to prefer device efficiency over subslice
-//                         // saturation
-//                         std::array<double, 4> c {.7, .13, .10, .07};
+        //         double score = [&]() {
+        //             // subslice efficiency
+        //             dim_t used_b_threads
+        //                     = std::min(utils::div_up(rnn.mb, mb_thr), b_thread);
+        //             dim_t used_d_threads = std::min(
+        //                     utils::div_up(
+        //                             rnn.dhc, dhc_thr * ocl_conf.subgroup_size),
+        //                     d_thread);
+        //             double ss_eff = 1.0 * (used_d_threads * used_b_threads)
+        //                     / device_info.max_eus_per_wg();
+        //             {
+        //                 // Scale to prefer device efficiency over subslice
+        //                 // saturation
+        //                 std::array<double, 4> c {.7, .13, .10, .07};
 
-//                         ss_eff = c[0] * nstl::clamp(ss_eff - 0, 0.0, 1.0)
-//                                 + c[1] * nstl::clamp(ss_eff - 1, 0.0, 1.0)
-//                                 + c[2] * nstl::clamp(ss_eff - 2, 0.0, 1.0)
-//                                 + c[3] * nstl::clamp(ss_eff - 3, 0.0, 1.0);
-//                     }
+        //                 ss_eff = c[0] * nstl::clamp(ss_eff - 0, 0.0, 1.0)
+        //                         + c[1] * nstl::clamp(ss_eff - 1, 0.0, 1.0)
+        //                         + c[2] * nstl::clamp(ss_eff - 2, 0.0, 1.0)
+        //                         + c[3] * nstl::clamp(ss_eff - 3, 0.0, 1.0);
+        //             }
 
-//                     double work_eff
-//                             = (1.0 * rnn.dhc
-//                                       / utils::rnd_up(rnn.dhc, dhc_block))
-//                             * (1.0 * rnn.mb / utils::rnd_up(rnn.mb, mb_block));
+        //             double work_eff
+        //                     = (1.0 * rnn.dhc
+        //                               / utils::rnd_up(rnn.dhc, dhc_block))
+        //                     * (1.0 * rnn.mb / utils::rnd_up(rnn.mb, mb_block));
 
-//                     dim_t ss_count = device_info.eu_count()
-//                             / device_info.max_eus_per_wg();
-//                     dim_t wg_to_fill_ss_eu
-//                             = utils::div_up(device_info.max_eus_per_wg(),
-//                                     (b_thread * d_thread));
-//                     dim_t ss_work
-//                             = utils::div_up(utils::div_up(rnn.dhc, dhc_block)
-//                                             * utils::div_up(rnn.mb, mb_block),
-//                                     wg_to_fill_ss_eu);
+        //             dim_t ss_count = device_info.eu_count()
+        //                     / device_info.max_eus_per_wg();
+        //             dim_t wg_to_fill_ss_eu
+        //                     = utils::div_up(device_info.max_eus_per_wg(),
+        //                             (b_thread * d_thread));
+        //             dim_t ss_work
+        //                     = utils::div_up(utils::div_up(rnn.dhc, dhc_block)
+        //                                     * utils::div_up(rnn.mb, mb_block),
+        //                             wg_to_fill_ss_eu);
 
-//                     double device_eff
-//                             = 1.0 * ss_work / utils::rnd_up(ss_work, ss_count);
+        //             double device_eff
+        //                     = 1.0 * ss_work / utils::rnd_up(ss_work, ss_count);
 
-//                     return ss_eff * work_eff * device_eff;
-//                 }();
+        //             return ss_eff * work_eff * device_eff;
+        //         }();
 
-//                 if (score > best_score) {
-//                     dhc_tg_best = dhc_tg;
-//                     mb_tg_best = mb_tg;
-//                     best_score = score;
-//                 }
-//             }
-//         }
+        //         if (score > best_score) {
+        //             dhc_tg_best = dhc_tg;
+        //             mb_tg_best = mb_tg;
+        //             best_score = score;
+        //         }
+        //     }
+        // }
 
-//         int dhc_tg = dev_getenv("dhc_tg", dhc_tg_best);
-//         int mb_tg = dev_getenv("mb_tg", mb_tg_best);
+        // int dhc_tg = dev_getenv("dhc_tg", dhc_tg_best);
+        // int mb_tg = dev_getenv("mb_tg", mb_tg_best);
 
-//         int mb_tail = dev_getenv("mb_tail",
-//                 rnn.mb % (mb_tg * mb_thr) != 0
-//                         || rnn.mb % ocl_conf.subgroup_size != 0);
-//         int dhc_tail
-//                 = dev_getenv("dhc_tail", rnn.dhc % (dhc_tg * dhc_thr) != 0);
-//         int k_block = ocl_conf.subgroup_size;
+        // int mb_tail = dev_getenv("mb_tail",
+        //         rnn.mb % (mb_tg * mb_thr) != 0
+        //                 || rnn.mb % ocl_conf.subgroup_size != 0);
+        // int dhc_tail
+        //         = dev_getenv("dhc_tail", rnn.dhc % (dhc_tg * dhc_thr) != 0);
+        // int k_block = ocl_conf.subgroup_size;
 
-//         gpu_assert(dhc_tg % ocl_conf.subgroup_size == 0);
+        // gpu_assert(dhc_tg % ocl_conf.subgroup_size == 0);
 
-//         ocl_conf.cell_comp.compute_gemm_layer = fuse_gemm_layer;
-//         ocl_conf.cell_comp.gemm_layer_k_tail
-//                 = fuse_gemm_layer && (rnn.slc % k_block != 0);
-//         ocl_conf.cell_comp.compute_gemm_iter = fuse_gemm_iter;
-//         ocl_conf.cell_comp.gemm_iter_k_tail
-//                 = fuse_gemm_iter && (rnn.sic % k_block != 0);
-//         ocl_conf.cell_comp.dhc_tail = dhc_tail;
-//         ocl_conf.cell_comp.mb_tail = mb_tail;
-//         ocl_conf.cell_comp.enable_iter_block = rnn.iter_loop != 1;
-//         ocl_conf.cell_comp.dhc_thr = dhc_thr;
-//         ocl_conf.cell_comp.dhc_tg = dhc_tg;
-//         ocl_conf.cell_comp.mb_thr = mb_thr;
-//         ocl_conf.cell_comp.mb_tg = mb_tg;
+        // ocl_conf.cell_comp.compute_gemm_layer = fuse_gemm_layer;
+        // ocl_conf.cell_comp.gemm_layer_k_tail
+        //         = fuse_gemm_layer && (rnn.slc % k_block != 0);
+        // ocl_conf.cell_comp.compute_gemm_iter = fuse_gemm_iter;
+        // ocl_conf.cell_comp.gemm_iter_k_tail
+        //         = fuse_gemm_iter && (rnn.sic % k_block != 0);
+        // ocl_conf.cell_comp.dhc_tail = dhc_tail;
+        // ocl_conf.cell_comp.mb_tail = mb_tail;
+        // ocl_conf.cell_comp.enable_iter_block = rnn.iter_loop != 1;
+        // ocl_conf.cell_comp.dhc_thr = dhc_thr;
+        // ocl_conf.cell_comp.dhc_tg = dhc_tg;
+        // ocl_conf.cell_comp.mb_thr = mb_thr;
+        // ocl_conf.cell_comp.mb_tg = mb_tg;
 //     }
 
-//     return status::success;
-// }
+    return status::success;
+}
 
 // status_t ocl_conf_t::init_kernel_ctx(compute::kernel_ctx_t &kernel_ctx) const {
 
@@ -466,19 +466,18 @@ using namespace dnnl::impl::memory_tracking::names;
 //     return status::success;
 // }
 
-// template <prop_kind_t aprop>
-// inline status_t init_ocl_conf(rnn_utils::ocl_conf_t &ocl_conf,
-//         const rnn_utils::conf_t &rnn, const rnn_pd_t *rnn_pd,
-//         const compute::device_info_t &device_info, rnn_offsets_t &off) {
+template <prop_kind_t aprop>
+inline status_t init_ocl_conf(
+        const rnn_utils::conf_t &rnn, const rnn_pd_t *rnn_pd, rnn_offsets_t &off) {
 
-//     const memory_desc_wrapper fakedesc = rnn_pd->src_md(0);
-//     return init_ocl_conf(ocl_conf, rnn_pd, rnn, device_info, rnn_pd->src_md(0),
-//             rnn_pd->src_md(1), rnn_pd->src_md(2), rnn_pd->weights_md(0),
-//             rnn_pd->weights_md(1), rnn_pd->weights_md(2), rnn_pd->dst_md(0),
-//             rnn_pd->dst_md(1), rnn_pd->dst_md(2), fakedesc, fakedesc, fakedesc,
-//             fakedesc, fakedesc, fakedesc, fakedesc, fakedesc, fakedesc,
-//             rnn_pd->workspace_md(0), off);
-// }
+    const memory_desc_wrapper fakedesc = rnn_pd->src_md(0);
+    return init_ocl_conf(rnn_pd, rnn, rnn_pd->src_md(0),
+            rnn_pd->src_md(1), rnn_pd->src_md(2), rnn_pd->weights_md(0),
+            rnn_pd->weights_md(1), rnn_pd->weights_md(2), rnn_pd->dst_md(0),
+            rnn_pd->dst_md(1), rnn_pd->dst_md(2), fakedesc, fakedesc, fakedesc,
+            fakedesc, fakedesc, fakedesc, fakedesc, fakedesc, fakedesc,
+            rnn_pd->workspace_md(0), off);
+}
 
 // template <>
 // inline status_t init_ocl_conf<prop_kind::backward>(
@@ -766,9 +765,9 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
                 "memory_desc_init_by_tag()");
     }
 
-//     VDISPATCH_RNN_SC(init_ocl_conf<aprop>(
-//                              ocl_conf, rnn_conf, this, device_info, this->off),
-//             "init_ocl_conf<>()");
+    VDISPATCH_RNN_SC(init_ocl_conf<aprop>(
+                              rnn_conf, this, this->off),
+            "init_ocl_conf<>()");
 
     dim_t batch = rnn_conf.mb;
     dim_t n_gates = rnn_conf.n_gates;

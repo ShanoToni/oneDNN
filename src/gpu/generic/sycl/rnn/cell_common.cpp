@@ -46,6 +46,7 @@ status_t compute_cell_fwd(const exec_ctx_t &ctx, int lay, int dir, int iter,
         const sub_buffer_t &scratch_gates,
         const strides_t<2> &scratch_gates_strides, float alpha,
         const memory_storage_t *tm_scales, const conf_t &conf, const rnn_offsets_t &offsets) {
+                return status::success;
 
 //     auto &cell_conf = ocl_conf.cell_comp;
 //     const size_t dhc = conf.dhc;

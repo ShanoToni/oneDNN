@@ -26,9 +26,9 @@
 #include "gpu/gpu_rnn_pd.hpp"
 #include "gpu/generic/sycl/sycl_gpu_primitive.hpp"
 // #include "gpu/intel/gpu_resource.hpp"
-// #include "gpu/intel/ocl/ocl_utils.hpp"
+#include "gpu/intel/ocl/ocl_utils.hpp"
 #include "gpu/generic/sycl/rnn/rnn_utils.hpp"
-// #include "gpu/intel/primitive_conf.hpp"
+#include "gpu/intel/primitive_conf.hpp"
 
 #include "gpu/intel/gemm/gpu_gemm.hpp"
 

@@ -290,7 +290,7 @@ void rnn_utils::set_rnn_conf(conf_t &rnn, const rnn_desc_t &rd,
             nstl::max(rnn.slc, nstl::max(rnn.sic, rnn.dhc)),
             rnn.ws_states_elsz);
     // TODO
-//     rnn.gates_ws_ld = get_good_ld(rnn.arch_ld, rnn.gates_ld, aux_elsz);
+    rnn.gates_ws_ld = get_good_ld(rnn.arch_ld, rnn.gates_ld, aux_elsz);
     
     // Disable associativity check on some large problems to reduce memory
     // usage. Can be removed when further improvements are made to
