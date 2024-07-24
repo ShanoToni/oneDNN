@@ -341,6 +341,24 @@ struct sycl_pooling_conf_t {
     sycl_post_ops_t post_ops;
 };
 
+struct sycl_rnn_copy_init_layer_conf_t{
+    xpu::sycl::md_t src_md;
+    xpu::sycl::md_t dst_md;
+    std::array<dim_t, 3> strides;
+    std::array<dim_t, 3> block_strides;
+    std::array<dim_t, 3> block_dims;
+    dim_t batch; 
+    dim_t slc; 
+    dim_t n_iter; 
+    dim_t n_layer;
+    dim_t n_dir; 
+    dim_t n_states;
+    dim_t states_ws_ld;
+    bool lr;
+    bool rl;
+};
+
+
 CHECK_SYCL_KERNEL_ARG_TYPE(sycl_binary_conf_t);
 CHECK_SYCL_KERNEL_ARG_TYPE(sycl_prelu_conf_t);
 CHECK_SYCL_KERNEL_ARG_TYPE(sycl_shuffle_conf_t);
@@ -351,6 +369,7 @@ CHECK_SYCL_KERNEL_ARG_TYPE(sycl_layer_normalization_conf_t);
 CHECK_SYCL_KERNEL_ARG_TYPE(sycl_eltwise_conf_t);
 CHECK_SYCL_KERNEL_ARG_TYPE(sycl_lrn_conf_t);
 CHECK_SYCL_KERNEL_ARG_TYPE(sycl_pooling_conf_t);
+CHECK_SYCL_KERNEL_ARG_TYPE(sycl_rnn_copy_init_layer_conf_t);
 
 } // namespace sycl
 } // namespace generic
