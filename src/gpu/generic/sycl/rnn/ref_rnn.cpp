@@ -27,6 +27,9 @@
 // only the cell execution function should be impacted
 
 #include "gpu/generic/sycl/rnn/ref_rnn.hpp"
+#include "common/primitive.hpp"
+#include "common/primitive_desc.hpp"
+#include "gpu/generic/sycl/sycl_gpu_primitive.hpp"
 
 #include "common/c_types_map.hpp"
 #include "common/dnnl_traits.hpp"
@@ -35,8 +38,14 @@
 #include "common/type_helpers.hpp"
 #include "gpu/gpu_primitive.hpp"
 #include "gpu/intel/gemm/gpu_gemm.hpp"
-#include "gpu/intel/gpu_primitive_attr.hpp"
+// #include "gpu/intel/gpu_primitive_attr.hpp"
+#include <iostream>
+#include <memory>
+#include "gpu/generic/sycl/rnn/rnn_kernels.hpp"
 #include "gpu/intel/utils.hpp"
+#include "gpu/nvidia/engine.hpp"
+#include "gpu/nvidia/stream.hpp"
+#include "xpu/sycl/memory_storage_helper.hpp"
 
 #define DPRINT(fmt, ...) \
     do { \
@@ -49,6 +58,7 @@
 namespace dnnl {
 namespace impl {
 namespace gpu {
+namespace generic {
 namespace sycl {
 
 using namespace dnnl::impl::utils;
@@ -61,9 +71,8 @@ using namespace dnnl::impl::memory_tracking::names;
 
 #define AOC array_offset_calculator
 
-static status_t init_ocl_conf(
-        const rnn_pd_t *rnn_pd, const rnn_utils::conf_t &rnn,
-        const memory_desc_wrapper &src_layer_d,
+static status_t init_ocl_conf(const rnn_pd_t *rnn_pd,
+        const rnn_utils::conf_t &rnn, const memory_desc_wrapper &src_layer_d,
         const memory_desc_wrapper &src_iter_d,
         const memory_desc_wrapper &src_iter_c_d,
         const memory_desc_wrapper &weights_layer_d,
@@ -116,44 +125,44 @@ static status_t init_ocl_conf(
         if (!utils::everyone_is(diff_dt, diff_src_layer_d.data_type(),
                     diff_dst_layer_d.data_type()))
             return status::unimplemented;
-        if (!utils::one_of(diff_src_iter_d.data_type(), diff_dt,
-                    data_type::undef)
-                || !utils::one_of(diff_src_iter_c_d.data_type(),
-                        diff_dt, data_type::undef)
-                || !utils::one_of(diff_dst_iter_d.data_type(), diff_dt,
+        if (!utils::one_of(
+                    diff_src_iter_d.data_type(), diff_dt, data_type::undef)
+                || !utils::one_of(diff_src_iter_c_d.data_type(), diff_dt,
                         data_type::undef)
-                || !utils::one_of(diff_dst_iter_c_d.data_type(),
-                        diff_dt, data_type::undef))
+                || !utils::one_of(
+                        diff_dst_iter_d.data_type(), diff_dt, data_type::undef)
+                || !utils::one_of(diff_dst_iter_c_d.data_type(), diff_dt,
+                        data_type::undef))
             return status::unimplemented;
     }
 
     off.src_layer = gpu::intel::get_outer_strides(src_layer_d);
-//     ocl_conf.inner_layouts.src_layer
-//             = gpu::intel::get_inner_layout(src_layer_d);
+    //     ocl_conf.inner_layouts.src_layer
+    //             = gpu::intel::get_inner_layout(src_layer_d);
     off.src_iter = gpu::intel::get_outer_strides(src_iter_d);
-//     ocl_conf.inner_layouts.src_iter = gpu::intel::get_inner_layout(src_iter_d);
+    //     ocl_conf.inner_layouts.src_iter = gpu::intel::get_inner_layout(src_iter_d);
     if (with_src_iter_c) {
         off.src_iter_c = gpu::intel::get_outer_strides(src_iter_c_d);
         // ocl_conf.inner_layouts.src_iter_c
         //         = gpu::intel::get_inner_layout(src_iter_c_d);
     }
     off.weights_layer = gpu::intel::get_outer_strides(weights_layer_d);
-//     ocl_conf.inner_layouts.weights_layer
-//             = gpu::intel::get_inner_layout(weights_layer_d);
+    //     ocl_conf.inner_layouts.weights_layer
+    //             = gpu::intel::get_inner_layout(weights_layer_d);
     off.weights_layer_comp_off
             = weights_layer_d.dims()[0] * weights_layer_d.strides()[0];
     off.weights_iter = gpu::intel::get_outer_strides(weights_iter_d);
-//     ocl_conf.inner_layouts.weights_iter
-//             = gpu::intel::get_inner_layout(weights_iter_d);
+    //     ocl_conf.inner_layouts.weights_iter
+    //             = gpu::intel::get_inner_layout(weights_iter_d);
     off.weights_iter_comp_off
             = weights_iter_d.dims()[0] * weights_iter_d.strides()[0];
     off.bias = gpu::intel::get_outer_strides(bias_d);
-//     ocl_conf.inner_layouts.bias = gpu::intel::get_inner_layout(bias_d);
+    //     ocl_conf.inner_layouts.bias = gpu::intel::get_inner_layout(bias_d);
     off.dst_layer = gpu::intel::get_outer_strides(dst_layer_d);
-//     ocl_conf.inner_layouts.dst_layer
-//             = gpu::intel::get_inner_layout(dst_layer_d);
+    //     ocl_conf.inner_layouts.dst_layer
+    //             = gpu::intel::get_inner_layout(dst_layer_d);
     off.dst_iter = gpu::intel::get_outer_strides(dst_iter_d);
-//     ocl_conf.inner_layouts.dst_iter = gpu::intel::get_inner_layout(dst_iter_d);
+    //     ocl_conf.inner_layouts.dst_iter = gpu::intel::get_inner_layout(dst_iter_d);
     if (with_dst_iter_c) {
         off.dst_iter_c = gpu::intel::get_outer_strides(dst_iter_c_d);
         // ocl_conf.inner_layouts.dst_iter_c
@@ -170,8 +179,8 @@ static status_t init_ocl_conf(
         if (with_src_iter_c) {
             off.diff_src_iter_c
                     = gpu::intel::get_outer_strides(diff_src_iter_c_d);
-        //     ocl_conf.inner_layouts.diff_src_iter_c
-        //             = gpu::intel::get_inner_layout(diff_src_iter_c_d);
+            //     ocl_conf.inner_layouts.diff_src_iter_c
+            //             = gpu::intel::get_inner_layout(diff_src_iter_c_d);
         }
         off.diff_weights_layer
                 = gpu::intel::get_outer_strides(diff_weights_layer_d);
@@ -193,146 +202,146 @@ static status_t init_ocl_conf(
         if (with_dst_iter_c) {
             off.diff_dst_iter_c
                     = gpu::intel::get_outer_strides(diff_dst_iter_c_d);
-        //     ocl_conf.inner_layouts.diff_dst_iter_c
-        //             = gpu::intel::get_inner_layout(diff_dst_iter_c_d);
+            //     ocl_conf.inner_layouts.diff_dst_iter_c
+            //             = gpu::intel::get_inner_layout(diff_dst_iter_c_d);
         }
     }
 
-//     ocl_conf.cell_kind = rnn_pd->cell_kind();
-//     ocl_conf.activation_kind = rnn_pd->activation_kind();
-//     ocl_conf.direction_kind = rnn_pd->direction();
+    //     ocl_conf.cell_kind = rnn_pd->cell_kind();
+    //     ocl_conf.activation_kind = rnn_pd->activation_kind();
+    //     ocl_conf.direction_kind = rnn_pd->direction();
 
-//     ocl_conf.wei_qparam_mask = rnn_pd->attr()->rnn_weights_qparams_.mask_;
-//     ocl_conf.is_testmode = rnn.is_testmode;
+    //     ocl_conf.wei_qparam_mask = rnn_pd->attr()->rnn_weights_qparams_.mask_;
+    //     ocl_conf.is_testmode = rnn.is_testmode;
 
-//     ocl_conf.threads_per_eu = 0; // Currently unset, to be set later
-//     ocl_conf.subgroup_size = 32; // TODO
-//     dev_getenv(
-//             "subgroup_size", device_info.max_subgroup_size(ocl_conf.acc_dt));
-//     auto max_elemwise_threads
-//             = utils::div_up(rnn.mb * rnn.dhc, ocl_conf.subgroup_size);
-//     auto max_elemwise_threads_per_eu
-//             = utils::div_up(max_elemwise_threads, device_info.eu_count());
-//     auto preferred_threads_per_eu = 4;
-//     ocl_conf.deterministic = rnn_pd->attr()->deterministic_;
-//     ocl_conf.elemwise_bwd_batch_block = dev_getenv("bwd_batch_block",
-//             into<int>(ocl_conf.deterministic
-//                             ? rnn.mb
-//                             : std::min(into<dim_t>(8),
-//                                     utils::rnd_up_pow2(
-//                                             max_elemwise_threads_per_eu
-//                                             / preferred_threads_per_eu))));
-//     ocl_conf.need_bias_atomic_reduce
-//             = !ocl_conf.is_fwd && ocl_conf.elemwise_bwd_batch_block < rnn.mb;
+    //     ocl_conf.threads_per_eu = 0; // Currently unset, to be set later
+    //     ocl_conf.subgroup_size = 32; // TODO
+    //     dev_getenv(
+    //             "subgroup_size", device_info.max_subgroup_size(ocl_conf.acc_dt));
+    //     auto max_elemwise_threads
+    //             = utils::div_up(rnn.mb * rnn.dhc, ocl_conf.subgroup_size);
+    //     auto max_elemwise_threads_per_eu
+    //             = utils::div_up(max_elemwise_threads, device_info.eu_count());
+    //     auto preferred_threads_per_eu = 4;
+    //     ocl_conf.deterministic = rnn_pd->attr()->deterministic_;
+    //     ocl_conf.elemwise_bwd_batch_block = dev_getenv("bwd_batch_block",
+    //             into<int>(ocl_conf.deterministic
+    //                             ? rnn.mb
+    //                             : std::min(into<dim_t>(8),
+    //                                     utils::rnd_up_pow2(
+    //                                             max_elemwise_threads_per_eu
+    //                                             / preferred_threads_per_eu))));
+    //     ocl_conf.need_bias_atomic_reduce
+    //             = !ocl_conf.is_fwd && ocl_conf.elemwise_bwd_batch_block < rnn.mb;
 
-//     ocl_conf.cell_comp.is_enabled
-//             = rnn.cell_fusion.gemm_layer || rnn.cell_fusion.gemm_iter;
-//     if (ocl_conf.cell_comp.is_enabled) {
-//         bool fuse_gemm_layer = rnn.cell_fusion.gemm_layer;
-//         bool fuse_gemm_iter = rnn.cell_fusion.gemm_iter;
+    //     ocl_conf.cell_comp.is_enabled
+    //             = rnn.cell_fusion.gemm_layer || rnn.cell_fusion.gemm_iter;
+    //     if (ocl_conf.cell_comp.is_enabled) {
+    //         bool fuse_gemm_layer = rnn.cell_fusion.gemm_layer;
+    //         bool fuse_gemm_iter = rnn.cell_fusion.gemm_iter;
 
-//         // Due to poor performing tail handling, exact divisibility on subgroup
-//         // size is preferred
-//         for (int subgroup_size = ocl_conf.subgroup_size;
-//                 subgroup_size >= 32; // TODO device_info.min_subgroup_size();
-//                 subgroup_size /= 2) {
-//             if (rnn.dhc % subgroup_size == 0) {
-//                 ocl_conf.subgroup_size = subgroup_size;
-//                 break;
-//             }
-//         }
+    //         // Due to poor performing tail handling, exact divisibility on subgroup
+    //         // size is preferred
+    //         for (int subgroup_size = ocl_conf.subgroup_size;
+    //                 subgroup_size >= 32; // TODO device_info.min_subgroup_size();
+    //                 subgroup_size /= 2) {
+    //             if (rnn.dhc % subgroup_size == 0) {
+    //                 ocl_conf.subgroup_size = subgroup_size;
+    //                 break;
+    //             }
+    //         }
 
-        // int dhc_thr = dev_getenv("dhc_thr", 1);
-        // int mb_thr = dev_getenv("mb_thr", 1);
+    // int dhc_thr = dev_getenv("dhc_thr", 1);
+    // int mb_thr = dev_getenv("mb_thr", 1);
 
-        // std::array<dim_t, 9> dhc_hw_threads = {1, 2, 3, 4, 5, 6, 7, 8, 16};
-        // std::array<dim_t, 3> mb_hw_threads = {1, 2, 4};
-        // int dhc_tg_best = 1;
-        // int mb_tg_best = 1;
-        // double best_score = 0;
-        // for (auto b_thread : mb_hw_threads) {
-        //     for (auto d_thread : dhc_hw_threads) {
-        //         dim_t dhc_tg = d_thread * ocl_conf.subgroup_size;
-        //         dim_t dhc_block = dhc_thr * dhc_tg;
-        //         dim_t mb_tg = b_thread;
-        //         dim_t mb_block = mb_thr * mb_tg;
+    // std::array<dim_t, 9> dhc_hw_threads = {1, 2, 3, 4, 5, 6, 7, 8, 16};
+    // std::array<dim_t, 3> mb_hw_threads = {1, 2, 4};
+    // int dhc_tg_best = 1;
+    // int mb_tg_best = 1;
+    // double best_score = 0;
+    // for (auto b_thread : mb_hw_threads) {
+    //     for (auto d_thread : dhc_hw_threads) {
+    //         dim_t dhc_tg = d_thread * ocl_conf.subgroup_size;
+    //         dim_t dhc_block = dhc_thr * dhc_tg;
+    //         dim_t mb_tg = b_thread;
+    //         dim_t mb_block = mb_thr * mb_tg;
 
-        //         double score = [&]() {
-        //             // subslice efficiency
-        //             dim_t used_b_threads
-        //                     = std::min(utils::div_up(rnn.mb, mb_thr), b_thread);
-        //             dim_t used_d_threads = std::min(
-        //                     utils::div_up(
-        //                             rnn.dhc, dhc_thr * ocl_conf.subgroup_size),
-        //                     d_thread);
-        //             double ss_eff = 1.0 * (used_d_threads * used_b_threads)
-        //                     / device_info.max_eus_per_wg();
-        //             {
-        //                 // Scale to prefer device efficiency over subslice
-        //                 // saturation
-        //                 std::array<double, 4> c {.7, .13, .10, .07};
+    //         double score = [&]() {
+    //             // subslice efficiency
+    //             dim_t used_b_threads
+    //                     = std::min(utils::div_up(rnn.mb, mb_thr), b_thread);
+    //             dim_t used_d_threads = std::min(
+    //                     utils::div_up(
+    //                             rnn.dhc, dhc_thr * ocl_conf.subgroup_size),
+    //                     d_thread);
+    //             double ss_eff = 1.0 * (used_d_threads * used_b_threads)
+    //                     / device_info.max_eus_per_wg();
+    //             {
+    //                 // Scale to prefer device efficiency over subslice
+    //                 // saturation
+    //                 std::array<double, 4> c {.7, .13, .10, .07};
 
-        //                 ss_eff = c[0] * nstl::clamp(ss_eff - 0, 0.0, 1.0)
-        //                         + c[1] * nstl::clamp(ss_eff - 1, 0.0, 1.0)
-        //                         + c[2] * nstl::clamp(ss_eff - 2, 0.0, 1.0)
-        //                         + c[3] * nstl::clamp(ss_eff - 3, 0.0, 1.0);
-        //             }
+    //                 ss_eff = c[0] * nstl::clamp(ss_eff - 0, 0.0, 1.0)
+    //                         + c[1] * nstl::clamp(ss_eff - 1, 0.0, 1.0)
+    //                         + c[2] * nstl::clamp(ss_eff - 2, 0.0, 1.0)
+    //                         + c[3] * nstl::clamp(ss_eff - 3, 0.0, 1.0);
+    //             }
 
-        //             double work_eff
-        //                     = (1.0 * rnn.dhc
-        //                               / utils::rnd_up(rnn.dhc, dhc_block))
-        //                     * (1.0 * rnn.mb / utils::rnd_up(rnn.mb, mb_block));
+    //             double work_eff
+    //                     = (1.0 * rnn.dhc
+    //                               / utils::rnd_up(rnn.dhc, dhc_block))
+    //                     * (1.0 * rnn.mb / utils::rnd_up(rnn.mb, mb_block));
 
-        //             dim_t ss_count = device_info.eu_count()
-        //                     / device_info.max_eus_per_wg();
-        //             dim_t wg_to_fill_ss_eu
-        //                     = utils::div_up(device_info.max_eus_per_wg(),
-        //                             (b_thread * d_thread));
-        //             dim_t ss_work
-        //                     = utils::div_up(utils::div_up(rnn.dhc, dhc_block)
-        //                                     * utils::div_up(rnn.mb, mb_block),
-        //                             wg_to_fill_ss_eu);
+    //             dim_t ss_count = device_info.eu_count()
+    //                     / device_info.max_eus_per_wg();
+    //             dim_t wg_to_fill_ss_eu
+    //                     = utils::div_up(device_info.max_eus_per_wg(),
+    //                             (b_thread * d_thread));
+    //             dim_t ss_work
+    //                     = utils::div_up(utils::div_up(rnn.dhc, dhc_block)
+    //                                     * utils::div_up(rnn.mb, mb_block),
+    //                             wg_to_fill_ss_eu);
 
-        //             double device_eff
-        //                     = 1.0 * ss_work / utils::rnd_up(ss_work, ss_count);
+    //             double device_eff
+    //                     = 1.0 * ss_work / utils::rnd_up(ss_work, ss_count);
 
-        //             return ss_eff * work_eff * device_eff;
-        //         }();
+    //             return ss_eff * work_eff * device_eff;
+    //         }();
 
-        //         if (score > best_score) {
-        //             dhc_tg_best = dhc_tg;
-        //             mb_tg_best = mb_tg;
-        //             best_score = score;
-        //         }
-        //     }
-        // }
+    //         if (score > best_score) {
+    //             dhc_tg_best = dhc_tg;
+    //             mb_tg_best = mb_tg;
+    //             best_score = score;
+    //         }
+    //     }
+    // }
 
-        // int dhc_tg = dev_getenv("dhc_tg", dhc_tg_best);
-        // int mb_tg = dev_getenv("mb_tg", mb_tg_best);
+    // int dhc_tg = dev_getenv("dhc_tg", dhc_tg_best);
+    // int mb_tg = dev_getenv("mb_tg", mb_tg_best);
 
-        // int mb_tail = dev_getenv("mb_tail",
-        //         rnn.mb % (mb_tg * mb_thr) != 0
-        //                 || rnn.mb % ocl_conf.subgroup_size != 0);
-        // int dhc_tail
-        //         = dev_getenv("dhc_tail", rnn.dhc % (dhc_tg * dhc_thr) != 0);
-        // int k_block = ocl_conf.subgroup_size;
+    // int mb_tail = dev_getenv("mb_tail",
+    //         rnn.mb % (mb_tg * mb_thr) != 0
+    //                 || rnn.mb % ocl_conf.subgroup_size != 0);
+    // int dhc_tail
+    //         = dev_getenv("dhc_tail", rnn.dhc % (dhc_tg * dhc_thr) != 0);
+    // int k_block = ocl_conf.subgroup_size;
 
-        // gpu_assert(dhc_tg % ocl_conf.subgroup_size == 0);
+    // gpu_assert(dhc_tg % ocl_conf.subgroup_size == 0);
 
-        // ocl_conf.cell_comp.compute_gemm_layer = fuse_gemm_layer;
-        // ocl_conf.cell_comp.gemm_layer_k_tail
-        //         = fuse_gemm_layer && (rnn.slc % k_block != 0);
-        // ocl_conf.cell_comp.compute_gemm_iter = fuse_gemm_iter;
-        // ocl_conf.cell_comp.gemm_iter_k_tail
-        //         = fuse_gemm_iter && (rnn.sic % k_block != 0);
-        // ocl_conf.cell_comp.dhc_tail = dhc_tail;
-        // ocl_conf.cell_comp.mb_tail = mb_tail;
-        // ocl_conf.cell_comp.enable_iter_block = rnn.iter_loop != 1;
-        // ocl_conf.cell_comp.dhc_thr = dhc_thr;
-        // ocl_conf.cell_comp.dhc_tg = dhc_tg;
-        // ocl_conf.cell_comp.mb_thr = mb_thr;
-        // ocl_conf.cell_comp.mb_tg = mb_tg;
-//     }
+    // ocl_conf.cell_comp.compute_gemm_layer = fuse_gemm_layer;
+    // ocl_conf.cell_comp.gemm_layer_k_tail
+    //         = fuse_gemm_layer && (rnn.slc % k_block != 0);
+    // ocl_conf.cell_comp.compute_gemm_iter = fuse_gemm_iter;
+    // ocl_conf.cell_comp.gemm_iter_k_tail
+    //         = fuse_gemm_iter && (rnn.sic % k_block != 0);
+    // ocl_conf.cell_comp.dhc_tail = dhc_tail;
+    // ocl_conf.cell_comp.mb_tail = mb_tail;
+    // ocl_conf.cell_comp.enable_iter_block = rnn.iter_loop != 1;
+    // ocl_conf.cell_comp.dhc_thr = dhc_thr;
+    // ocl_conf.cell_comp.dhc_tg = dhc_tg;
+    // ocl_conf.cell_comp.mb_thr = mb_thr;
+    // ocl_conf.cell_comp.mb_tg = mb_tg;
+    //     }
 
     return status::success;
 }
@@ -467,16 +476,16 @@ static status_t init_ocl_conf(
 // }
 
 template <prop_kind_t aprop>
-inline status_t init_ocl_conf(
-        const rnn_utils::conf_t &rnn, const rnn_pd_t *rnn_pd, rnn_offsets_t &off) {
+inline status_t init_ocl_conf(const rnn_utils::conf_t &rnn,
+        const rnn_pd_t *rnn_pd, rnn_offsets_t &off) {
 
     const memory_desc_wrapper fakedesc = rnn_pd->src_md(0);
-    return init_ocl_conf(rnn_pd, rnn, rnn_pd->src_md(0),
-            rnn_pd->src_md(1), rnn_pd->src_md(2), rnn_pd->weights_md(0),
-            rnn_pd->weights_md(1), rnn_pd->weights_md(2), rnn_pd->dst_md(0),
-            rnn_pd->dst_md(1), rnn_pd->dst_md(2), fakedesc, fakedesc, fakedesc,
-            fakedesc, fakedesc, fakedesc, fakedesc, fakedesc, fakedesc,
-            rnn_pd->workspace_md(0), off);
+    return init_ocl_conf(rnn_pd, rnn, rnn_pd->src_md(0), rnn_pd->src_md(1),
+            rnn_pd->src_md(2), rnn_pd->weights_md(0), rnn_pd->weights_md(1),
+            rnn_pd->weights_md(2), rnn_pd->dst_md(0), rnn_pd->dst_md(1),
+            rnn_pd->dst_md(2), fakedesc, fakedesc, fakedesc, fakedesc, fakedesc,
+            fakedesc, fakedesc, fakedesc, fakedesc, rnn_pd->workspace_md(0),
+            off);
 }
 
 // template <>
@@ -605,14 +614,14 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
     using namespace utils;
     using namespace rnn_utils;
     using namespace format_tag;
-    
+
     assert(engine->kind() == engine_kind::gpu);
     // auto *compute_engine
     //         = utils::downcast<const compute::compute_engine_t *>(engine);
 
     // const compute::device_info_t &device_info
     //         = *(compute_engine->device_info());
-// //     max_eus_per_wg = device_info.max_eus_per_wg();
+    // //     max_eus_per_wg = device_info.max_eus_per_wg();
 
     const alg_kind_t cell_kind = this->desc()->cell_kind;
 
@@ -667,17 +676,17 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
     VDISPATCH_RNN(IMPLICATION(src_layer_dt == data_type::u8,
                           this->desc()->prop_kind == forward_inference),
             VERBOSE_UNSUPPORTED_DT_CFG);
-// //     VDISPATCH_RNN(
-// //             compute_engine->mayiuse(compute::device_ext_t::intel_subgroups),
-// //             VERBOSE_UNSUPPORTED_DEVICE_FEATURE, "subgroups");
-// //     VDISPATCH_RNN(
-// //             IMPLICATION(src_layer_dt == data_type::f16,
-// //                     true
-// //                             && compute_engine->mayiuse(
-// //                                     compute::device_ext_t::khr_fp16)
-// //                             && compute_engine->mayiuse(compute::device_ext_t::
-// //                                             intel_subgroups_short)),
-// //             VERBOSE_UNSUPPORTED_DT_CFG);
+    // //     VDISPATCH_RNN(
+    // //             compute_engine->mayiuse(compute::device_ext_t::intel_subgroups),
+    // //             VERBOSE_UNSUPPORTED_DEVICE_FEATURE, "subgroups");
+    // //     VDISPATCH_RNN(
+    // //             IMPLICATION(src_layer_dt == data_type::f16,
+    // //                     true
+    // //                             && compute_engine->mayiuse(
+    // //                                     compute::device_ext_t::khr_fp16)
+    // //                             && compute_engine->mayiuse(compute::device_ext_t::
+    // //                                             intel_subgroups_short)),
+    // //             VERBOSE_UNSUPPORTED_DT_CFG);
 
     init_rnn_conf(rnn_conf, *this->desc(), this->src_md(0), this->src_md(1),
             this->weights_md(0), this->weights_md(1), this->dst_md(0),
@@ -707,7 +716,6 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
                 has_trivial_strides(this->dst_iter_c_md_),
                 status::unimplemented, VERBOSE_NONTRIVIAL_STRIDE);
     }
-
 
     // Check that only supported attr have been passed.
     primitive_attr_t::skip_mask_t attr_mask
@@ -765,8 +773,7 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
                 "memory_desc_init_by_tag()");
     }
 
-    VDISPATCH_RNN_SC(init_ocl_conf<aprop>(
-                              rnn_conf, this, this->off),
+    VDISPATCH_RNN_SC(init_ocl_conf<aprop>(rnn_conf, this, this->off),
             "init_ocl_conf<>()");
 
     dim_t batch = rnn_conf.mb;
@@ -997,53 +1004,69 @@ status_t _ref_rnn_common_t<aprop>::init(impl::engine_t *engine) {
     rnn_utils::set_workspace_offsets(rnn, ws_gates_offset_, ws_states_offset_,
             ws_c_states_offset_, ws_grid_comp_offset_, ws_bias_offset_);
 
-//     auto kernel_names = pd()->ocl_conf.get_kernel_names();
-//     CHECK(create_kernels(engine, kernels_, kernel_names, pd()->ocl_conf));
+    //     auto kernel_names = pd()->ocl_conf.get_kernel_names();
+    //     CHECK(create_kernels(engine, kernels_, kernel_names, pd()->ocl_conf));
+    bool gemm_ok = true;
+    auto create_nested_gemm =
+            [&](const std::shared_ptr<primitive_desc_t> &prim_desc,
+                    std::shared_ptr<impl::primitive_t> &prim) {
+                std::pair<std::shared_ptr<impl::primitive_t>, cache_state_t>
+                        pair;
+                bool gemm_ok = prim_desc->create_primitive_nested(pair, engine)
+                        == status::success;
+                prim = pair.first;
+                return gemm_ok;
+            };
 
-    bool gemm_ok = utils::everyone_is(status::success,
-            pd()->gemm_layer_fwd_pd_ ? create_nested_primitive(
-                    gemm_layer_fwd_, pd()->gemm_layer_fwd_pd_, engine)
-                                     : status::success,
-            pd()->gemm_layer_fwd_src_pd_ ? create_nested_primitive(
-                    gemm_layer_fwd_src_, pd()->gemm_layer_fwd_src_pd_, engine)
-                                         : status::success,
-            pd()->gemm_iter_fwd_pd_ ? create_nested_primitive(
-                    gemm_iter_fwd_, pd()->gemm_iter_fwd_pd_, engine)
-                                    : status::success);
+    gemm_ok = gemm_ok
+            && create_nested_gemm(pd()->gemm_layer_fwd_pd_, gemm_layer_fwd_);
+    if (pd()->gemm_layer_fwd_src_pd_) {
+        gemm_ok = gemm_ok
+                && create_nested_gemm(
+                        pd()->gemm_layer_fwd_src_pd_, gemm_layer_fwd_src_);
+    }
+    gemm_ok = gemm_ok
+            && create_nested_gemm(pd()->gemm_iter_fwd_pd_, gemm_iter_fwd_);
+
     switch (aprop) {
         case prop_kind::forward:
-            gemm_ok = true
-                    && utils::everyone_is(status::success,
-                            rnn.is_vanilla_gru
-                                    ? create_nested_primitive(gemm_iter_fwd_2_,
-                                            pd()->gemm_iter_fwd_2_pd_, engine)
-                                    : status::success);
+            if (rnn.is_vanilla_gru) {
+                gemm_ok = gemm_ok
+                        && create_nested_gemm(
+                                pd()->gemm_iter_fwd_2_pd_, gemm_iter_fwd_2_);
+            }
             break;
         case prop_kind::backward:
-            gemm_ok = true
-                    && utils::everyone_is(status::success,
-                            create_nested_primitive(gemm_layer_bwd_,
-                                    pd()->gemm_layer_bwd_pd_, engine),
-                            create_nested_primitive(gemm_iter_bwd_,
-                                    pd()->gemm_iter_bwd_pd_, engine),
-                            create_nested_primitive(gemm_diff_wei_layer_,
-                                    pd()->gemm_diff_wei_layer_pd_, engine),
-                            (pd()->gemm_diff_wei_layer_src_pd_
-                                            ? create_nested_primitive(
-                                                    gemm_diff_wei_layer_src_,
-                                                    pd()->gemm_diff_wei_layer_src_pd_,
-                                                    engine)
-                                            : status::success),
-                            create_nested_primitive(gemm_diff_wei_iter_,
-                                    pd()->gemm_diff_wei_iter_pd_, engine),
-                            rnn.is_vanilla_gru
-                                    ? create_nested_primitive(gemm_iter_bwd_2_,
-                                            pd()->gemm_iter_bwd_2_pd_, engine)
-                                    : status::success,
-                            rnn.is_vanilla_gru ? create_nested_primitive(
-                                    gemm_diff_wei_iter_2_,
-                                    pd()->gemm_diff_wei_iter_2_pd_, engine)
-                                               : status::success);
+            gemm_ok = gemm_ok
+                    && create_nested_gemm(
+                            pd()->gemm_layer_bwd_pd_, gemm_layer_bwd_);
+            gemm_ok = gemm_ok
+                    && create_nested_gemm(
+                            pd()->gemm_iter_bwd_pd_, gemm_iter_bwd_);
+            gemm_ok = gemm_ok
+                    && create_nested_gemm(pd()->gemm_diff_wei_layer_pd_,
+                            gemm_diff_wei_layer_);
+
+            if (pd()->gemm_diff_wei_layer_src_pd_) {
+                gemm_ok = gemm_ok
+                        && create_nested_gemm(pd()->gemm_diff_wei_layer_src_pd_,
+                                gemm_diff_wei_layer_src_);
+            }
+            gemm_ok = gemm_ok
+                    && create_nested_gemm(
+                            pd()->gemm_diff_wei_iter_pd_, gemm_diff_wei_iter_);
+
+            if (rnn.is_vanilla_gru) {
+                if (pd()->gemm_iter_bwd_2_pd_)
+                    gemm_ok = gemm_ok
+                            && create_nested_gemm(pd()->gemm_iter_bwd_2_pd_,
+                                    gemm_iter_bwd_2_);
+            }
+            if (pd()->gemm_diff_wei_iter_2_pd_) {
+                gemm_ok = gemm_ok
+                        && create_nested_gemm(pd()->gemm_diff_wei_iter_2_pd_,
+                                gemm_diff_wei_iter_2_);
+            }
             break;
         default: assert(!"unknown prop_kind"); return status::invalid_arguments;
     }
@@ -1051,7 +1074,7 @@ status_t _ref_rnn_common_t<aprop>::init(impl::engine_t *engine) {
     if (!gemm_ok) return status::runtime_error;
 
     return status::success;
-}
+} // namespace sycl
 
 // template <prop_kind_t aprop>
 // status_t _ref_rnn_common_t<aprop>::init_res_storage(
@@ -1184,20 +1207,20 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
     dim_t n_iter = rnn.n_iter;
 
     // TODO
-//     if (aprop == prop_kind::backward && pd()->diff_weights_overwrite()) {
-//         compute::compute_stream_t *compute_stream
-//                 = utils::downcast<compute::compute_stream_t *>(ctx.stream());
-//         auto zero = [&](const memory_storage_t &data, int arg_id) {
-//             auto mdw = memory_desc_wrapper(pd()->arg_md(arg_id));
-//             return compute_stream->fill(data, 0, mdw.size(),
-//                     compute_stream->ctx().get_deps(),
-//                     compute_stream->ctx().get_deps());
-//         };
+    //     if (aprop == prop_kind::backward && pd()->diff_weights_overwrite()) {
+    //         compute::compute_stream_t *compute_stream
+    //                 = utils::downcast<compute::compute_stream_t *>(ctx.stream());
+    //         auto zero = [&](const memory_storage_t &data, int arg_id) {
+    //             auto mdw = memory_desc_wrapper(pd()->arg_md(arg_id));
+    //             return compute_stream->fill(data, 0, mdw.size(),
+    //                     compute_stream->ctx().get_deps(),
+    //                     compute_stream->ctx().get_deps());
+    //         };
 
-//         CHECK(zero(diff_bias, DNNL_ARG_DIFF_BIAS));
-//         CHECK(zero(user_data.diff_wei_layer(), DNNL_ARG_DIFF_WEIGHTS_LAYER));
-//         CHECK(zero(user_data.diff_wei_iter(), DNNL_ARG_DIFF_WEIGHTS_ITER));
-//     }
+    //         CHECK(zero(diff_bias, DNNL_ARG_DIFF_BIAS));
+    //         CHECK(zero(user_data.diff_wei_layer(), DNNL_ARG_DIFF_WEIGHTS_LAYER));
+    //         CHECK(zero(user_data.diff_wei_iter(), DNNL_ARG_DIFF_WEIGHTS_ITER));
+    //     }
 
     // Grid Computation for RNN with a cell execution call
     for (dim_t dir = 0; dir < n_dir; dir++) {
@@ -1265,13 +1288,13 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
 
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::bias_prepare(const exec_ctx_t &ctx,
-        // compute::compute_stream_t *compute_stream, 
-        dim_t n_layer, dim_t n_dir,
-        dim_t n_bias, dim_t n_gates, dim_t dhc, const memory_storage_t &ws_bias,
-        const memory_storage_t &scales, const memory_storage_t &wei_layer,
-        const memory_storage_t &wei_iter, const memory_storage_t &bias) const {
-        return status::success;
-        }
+        // compute::compute_stream_t *compute_stream,
+        dim_t n_layer, dim_t n_dir, dim_t n_bias, dim_t n_gates, dim_t dhc,
+        const memory_storage_t &ws_bias, const memory_storage_t &scales,
+        const memory_storage_t &wei_layer, const memory_storage_t &wei_iter,
+        const memory_storage_t &bias) const {
+    return status::success;
+}
 
 //     float data_shift = pd()->attr()->rnn_data_qparams_.shift_;
 //     float data_scale = pd()->attr()->rnn_data_qparams_.scale_;
@@ -1299,18 +1322,86 @@ status_t _ref_rnn_common_t<aprop>::bias_prepare(const exec_ctx_t &ctx,
 //             kernels_[kernel_id::bias_prepare], arg_list);
 // }
 
+#define PRINT_VEC(data, size) \
+    { \
+        void *raw_data = nullptr; \
+        data.map_data(&raw_data, nullptr, size * sizeof(float)); \
+        for (auto i = 0; i < size; i++) { \
+            std::cout << #data << "[" << i \
+                      << "] = " << static_cast<float *>(raw_data)[i] << "\n"; \
+        } \
+        std::cout << "\n\n"; \
+        data.unmap_data(raw_data, nullptr); \
+    }
+
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::copy_init_layer(const exec_ctx_t &ctx,
-        // compute::compute_stream_t *compute_stream, 
-        bool lr, bool rl,
-        dim_t batch, dim_t dhc, dim_t slc, dim_t n_iter, dim_t n_layer,
-        dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
+        // compute::compute_stream_t *compute_stream,
+        bool lr, bool rl, dim_t batch, dim_t dhc, dim_t slc, dim_t n_iter,
+        dim_t n_layer, dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
         dim_t scratch_diff_states_ld, const memory_storage_t &ws_states,
         const memory_storage_t *scratch_diff_states,
         const memory_storage_t &input,
         const memory_storage_t &diff_dst_layer) const {
-                return status::success;
-        }
+    std::cout << "Enter copy_init_layer\n";
+    nvidia::stream_t *stream
+            = utils::downcast<nvidia::stream_t *>(ctx.stream());
+    auto conf = sycl_rnn_copy_init_layer_conf_t();
+    conf.batch = batch;
+    conf.slc = slc;
+    conf.n_iter = n_iter;
+    conf.n_layer = n_layer;
+    conf.n_dir = n_dir;
+    conf.n_states = n_states;
+    conf.states_ws_ld = states_ws_ld;
+    conf.lr = lr;
+    conf.rl = rl;
+
+    auto block_size = 16;
+    auto wg_size = 16;
+
+    parallel_for(ctx, copy_init_layer_kernel_, [&](::sycl::handler &cgh) {
+        auto src_mem_arg = CTX_IN_SYCL_KERNEL_MEMORY(DNNL_ARG_SRC);
+        auto dst_mem_arg = CTX_OUT_SYCL_KERNEL_MEMORY(DNNL_ARG_DST);
+
+        ref_rnn_copy_init_layer_t copy_kernel(conf, src_mem_arg, dst_mem_arg);
+        size_t local_batch = 32;
+        size_t local_iter = 32;
+        size_t local_channel = 32;
+        size_t global_batch = std::max(static_cast<size_t>(batch), local_batch);
+        size_t global_iter = std::max(static_cast<size_t>(n_iter), local_iter);
+        size_t global_channels
+                = std::max(static_cast<size_t>(n_states), local_channel);
+        cgh.parallel_for(
+                ::sycl::nd_range<3>(::sycl::range<3>(global_iter, global_batch,
+                                            global_channels),
+                        ::sycl::range<3>(
+                                local_iter, local_batch, local_channel)),
+                copy_kernel);
+    });
+
+    // PRINT_VEC(input, 16)
+    // PRINT_VEC(ws_states, 16)
+    // stream->copy(input, ws_states, 16, stream->ctx().get_deps(), stream->ctx().get_deps());
+    // stream->wait();
+    // PRINT_VEC(ws_states, 16)
+    // return stream->interop_task([&](::sycl::handler &cgh) {
+    // auto in_arg = xpu::sycl::interop_memory_arg_t<
+    //         ::sycl::access::mode::read>(&input.get(), cgh);
+    // auto out_arg = xpu::sycl::interop_memory_arg_t<
+    //         ::sycl::access::mode::write>(&ws_states.get(), cgh);
+    // nvidia::compat::host_task(cgh, [=](const nvidia::compat::interop_handle &ih) {
+    //     auto &sycl_engine = *utils::downcast<nvidia::engine_t *>(
+    //             stream->engine());
+    // //     auto sc = cuda_sycl_scoped_context_handler_t(sycl_engine);
+    // cuMemCpy(out_arg.get_native_pointer(ih), in_arg.get_native_pointer(ih),
+    //     16*sizeof(float));
+    //     cudaDeviceSynchronize();
+    // });
+    // });
+
+    return status::success;
+}
 //     int32_t unused_ld = 0;
 
 //     if (aprop == prop_kind::forward) {
@@ -1362,19 +1453,28 @@ status_t _ref_rnn_common_t<aprop>::copy_init_layer(const exec_ctx_t &ctx,
 
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::copy_init_iter(const exec_ctx_t &ctx,
-        // compute::compute_stream_t *compute_stream, 
-        dim_t batch, dim_t dhc,
-        dim_t sic, dim_t n_iter, dim_t n_layer, dim_t n_dir, dim_t n_states,
-        dim_t states_ws_ld, dim_t scratch_diff_states_ld,
-        const rnn_utils::workspace_t &ws,
+        // compute::compute_stream_t *compute_stream,
+        dim_t batch, dim_t dhc, dim_t sic, dim_t n_iter, dim_t n_layer,
+        dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
+        dim_t scratch_diff_states_ld, const rnn_utils::workspace_t &ws,
         const memory_storage_t *scratch_diff_states,
         const memory_storage_t &firstit_states,
         const memory_storage_t &firstit_c_states,
         const memory_storage_t &diff_dst_iter,
         const memory_storage_t &diff_dst_iter_c, const float shift,
         const float scale, const bool quantize) const {
-        return status::success;
-        }
+    std::cout << "Enter copy_init_iter\n";
+    nvidia::stream_t *stream
+            = utils::downcast<nvidia::stream_t *>(ctx.stream());
+    // ws.states().set_offset(16);
+    PRINT_VEC(firstit_states, 16)
+    PRINT_VEC((ws.states()), 16)
+    stream->copy(firstit_states, ws.states(), 16, stream->ctx().get_deps(),
+            stream->ctx().get_deps());
+    stream->wait();
+    PRINT_VEC((ws.states()), 16)
+    return status::success;
+}
 
 //     int32_t unused_ld = 0;
 //     if (aprop == prop_kind::forward) {
@@ -1439,18 +1539,31 @@ status_t _ref_rnn_common_t<aprop>::copy_init_iter(const exec_ctx_t &ctx,
 
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::copy_res_layer(const exec_ctx_t &ctx,
-        // compute::compute_stream_t *compute_stream, 
-        bool lr, bool rl,
-        dim_t batch, dim_t dhc, dim_t slc, dim_t n_iter, dim_t n_layer,
-        dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
+        // compute::compute_stream_t *compute_stream,
+        bool lr, bool rl, dim_t batch, dim_t dhc, dim_t slc, dim_t n_iter,
+        dim_t n_layer, dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
         dim_t scratch_diff_states_ld,
         const memory_storage_t *scratch_diff_states,
         const memory_storage_t &dst_last_layer,
         const memory_storage_t &diff_src_layer,
         const memory_storage_t &ws_states, const float shift, const float scale,
         const bool dequantize) const {
-        return status::success;
-        }
+    std::cout << "Enter copy_res_layer\n";
+    nvidia::stream_t *stream
+            = utils::downcast<nvidia::stream_t *>(ctx.stream());
+    PRINT_VEC(ws_states, 16)
+    auto tmp = ws_states.clone();
+    tmp->set_offset(tmp->offset() + 32 * sizeof(float));
+    std::cout << "offset: " << tmp->offset() << "\n";
+    auto t = tmp.get();
+    PRINT_VEC((*t), 16)
+    PRINT_VEC(dst_last_layer, 16)
+    stream->copy(*t, dst_last_layer, 16, stream->ctx().get_deps(),
+            stream->ctx().get_deps());
+    PRINT_VEC(dst_last_layer, 16)
+    stream->wait();
+    return status::success;
+}
 
 //     int32_t unused_ld = 0;
 //     if (aprop == prop_kind::forward) {
@@ -1504,10 +1617,10 @@ status_t _ref_rnn_common_t<aprop>::copy_res_layer(const exec_ctx_t &ctx,
 
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::copy_res_iter(const exec_ctx_t &ctx,
-        // compute::compute_stream_t *compute_stream, 
-        dim_t batch, dim_t dhc,
-        dim_t sic, dim_t n_iter, dim_t n_layer, dim_t n_dir, dim_t n_states,
-        dim_t states_ws_ld, dim_t scratch_diff_states_ld,
+        // compute::compute_stream_t *compute_stream,
+        dim_t batch, dim_t dhc, dim_t sic, dim_t n_iter, dim_t n_layer,
+        dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
+        dim_t scratch_diff_states_ld,
         const memory_storage_t *scratch_diff_states,
         const memory_storage_t &dst_last_iter,
         const memory_storage_t &dst_last_iter_c,
@@ -1515,8 +1628,23 @@ status_t _ref_rnn_common_t<aprop>::copy_res_iter(const exec_ctx_t &ctx,
         const memory_storage_t &diff_src_iter_c,
         const rnn_utils::workspace_t &ws, const float shift, const float scale,
         const bool dequantize) const {
-        return status::success;
-        }
+    std::cout << "Enter copy_res_iter\n";
+    nvidia::stream_t *stream
+            = utils::downcast<nvidia::stream_t *>(ctx.stream());
+    PRINT_VEC(ws.states(), 16)
+    auto tmp = ws.states().clone();
+    tmp->set_offset(tmp->offset() + 32 * sizeof(float));
+    std::cout << "offset: " << tmp->offset() << "\n";
+    auto t = tmp.get();
+    PRINT_VEC((*t), 16)
+    // PRINT_VEC(ws.states(), 16)
+    PRINT_VEC(dst_last_iter, 16)
+    stream->copy(*t, dst_last_iter, 16, stream->ctx().get_deps(),
+            stream->ctx().get_deps());
+    PRINT_VEC(dst_last_iter, 16)
+    stream->wait();
+    return status::success;
+}
 //     int32_t unused_ld = 0;
 //     if (aprop == prop_kind::forward) {
 //         compute::kernel_arg_list_t arg_list;
@@ -1584,10 +1712,9 @@ status_t _ref_rnn_common_t<aprop>::copy_res_iter(const exec_ctx_t &ctx,
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::execute_(const exec_ctx_t &ctx) const {
 
-
     impl::engine_t *engine = ctx.stream()->engine();
-//     auto *compute_stream
-//             = utils::downcast<compute::compute_stream_t *>(ctx.stream());
+    //     auto *compute_stream
+    //             = utils::downcast<compute::compute_stream_t *>(ctx.stream());
 
     auto rnn_pd = this->pd();
 
@@ -1694,8 +1821,8 @@ status_t _ref_rnn_common_t<aprop>::execute_(const exec_ctx_t &ctx) const {
 
     // bias prepare if needed
     if (rnn.copy_bias) {
-        CHECK(bias_prepare(ctx, n_layer, n_dir, n_bias, n_gates,
-                dhc, workspace.bias(), *scales_buf, wei_layer_native_,
+        CHECK(bias_prepare(ctx, n_layer, n_dir, n_bias, n_gates, dhc,
+                workspace.bias(), *scales_buf, wei_layer_native_,
                 wei_iter_native_, user_data.bias()));
     }
 
@@ -1704,19 +1831,19 @@ status_t _ref_rnn_common_t<aprop>::execute_(const exec_ctx_t &ctx) const {
 
     if ((rnn.is_fwd && rnn.copy_src_layer)
             || (!rnn.is_fwd && rnn.copy_diff_dst_layer)) {
-        CHECK(copy_init_layer(ctx, is_lr, is_rl, batch, dhc,
-                slc, n_iter, n_layer, n_dir, n_states, rnn.states_ws_ld,
+        CHECK(copy_init_layer(ctx, is_lr, is_rl, batch, dhc, slc, n_iter,
+                n_layer, n_dir, n_states, rnn.states_ws_ld,
                 rnn.scratch_diff_states_ld, workspace.states(),
                 scratch.diff_states(), src_layer_native_,
                 diff_dst_layer_native_));
     }
     const bool quantize = pd()->with_src_iter()
             && pd()->src_md(1)->data_type == data_type::f32 && rnn.is_int8;
-    CHECK(copy_init_iter(ctx, batch, dhc, sic, n_iter, n_layer,
-            n_dir, n_states, rnn.states_ws_ld, rnn.scratch_diff_states_ld,
-            workspace, scratch.diff_states(), src_iter_native_,
-            src_c_iter_native_, diff_dst_iter_native_, diff_dst_iter_c_native_,
-            shift, scale, quantize));
+    CHECK(copy_init_iter(ctx, batch, dhc, sic, n_iter, n_layer, n_dir, n_states,
+            rnn.states_ws_ld, rnn.scratch_diff_states_ld, workspace,
+            scratch.diff_states(), src_iter_native_, src_c_iter_native_,
+            diff_dst_iter_native_, diff_dst_iter_c_native_, shift, scale,
+            quantize));
 
     const memory_storage_t *tm_scales_buf = nullptr;
     if (pd()->rnn_conf.is_testmode && pd_->attr()->rnn_tparams_.scales_) {
@@ -1732,19 +1859,19 @@ status_t _ref_rnn_common_t<aprop>::execute_(const exec_ctx_t &ctx) const {
     if (rnn.is_fwd || rnn.copy_diff_src_layer) {
         const bool dequantize_l
                 = pd()->dst_md(0)->data_type == data_type::f32 && rnn.is_int8;
-        CHECK(copy_res_layer(ctx, is_lr, is_rl, batch, dhc, slc,
-                n_iter, n_layer, n_dir, n_states, rnn.states_ws_ld,
+        CHECK(copy_res_layer(ctx, is_lr, is_rl, batch, dhc, slc, n_iter,
+                n_layer, n_dir, n_states, rnn.states_ws_ld,
                 rnn.scratch_diff_states_ld, scratch.diff_states(),
                 dst_last_layer_native_, diff_src_layer_native_,
                 workspace.states(), shift, scale, dequantize_l));
     }
     const bool dequantize_i = pd()->with_dst_iter()
             && pd()->dst_md(1)->data_type == data_type::f32 && rnn.is_int8;
-    CHECK(copy_res_iter(ctx, batch, dhc, sic, n_iter, n_layer,
-            n_dir, n_states, rnn.states_ws_ld, rnn.scratch_diff_states_ld,
-            scratch.diff_states(), dst_last_iter_native_,
-            dst_last_iter_c_native_, diff_src_iter_native_,
-            diff_src_iter_c_native_, workspace, shift, scale, dequantize_i));
+    CHECK(copy_res_iter(ctx, batch, dhc, sic, n_iter, n_layer, n_dir, n_states,
+            rnn.states_ws_ld, rnn.scratch_diff_states_ld, scratch.diff_states(),
+            dst_last_iter_native_, dst_last_iter_c_native_,
+            diff_src_iter_native_, diff_src_iter_c_native_, workspace, shift,
+            scale, dequantize_i));
 
     return status::success;
 };
@@ -1786,6 +1913,7 @@ template struct _ref_rnn_common_t<prop_kind::forward>;
 template struct _ref_rnn_common_t<prop_kind::backward>;
 
 } // namespace sycl
+} // namespace generic
 } // namespace gpu
 } // namespace impl
 } // namespace dnnl

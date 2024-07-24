@@ -32,12 +32,21 @@
 
 #include "gpu/intel/gemm/gpu_gemm.hpp"
 
+#include "gpu/generic/sycl/sycl_gpu_primitive.hpp"
+#include "gpu/generic/sycl/sycl_post_ops.hpp"
+#include "gpu/generic/sycl/sycl_primitive_conf.hpp"
+#include "xpu/sycl/types.hpp"
+
+#include "gpu/generic/sycl/sycl_gpu_kernel.hpp"
+
+
 // TODO just to debug
 #define WS_NAN_FILLING 0
 
 namespace dnnl {
 namespace impl {
 namespace gpu {
+namespace generic {
 namespace sycl {
 
 enum gemm_kind_t {
@@ -56,8 +65,8 @@ enum gemm_kind_t {
 
 template <prop_kind_t aprop>
 // TODO fix inheritance issue (Not inheriting from sycl primitive_t currently)
-struct _ref_rnn_common_t : public gpu::primitive_t {
-    using gpu::primitive_t::primitive_t;
+struct _ref_rnn_common_t : public primitive_t {
+    using primitive_t::primitive_t;
 
     using class_name = _ref_rnn_common_t<aprop>;
 
@@ -264,11 +273,14 @@ private:
     elemwise_gru_f elemwise_gru = nullptr;
     elemwise_gru_lbr_f elemwise_gru_lbr = nullptr;
 
+    kernel_t copy_init_layer_kernel_;
+
     enum { SCALES_ = 0, TM_SCALES_ = 1 };
 };
 using ref_rnn_fwd_t = _ref_rnn_common_t<prop_kind::forward>;
 using ref_rnn_bwd_t = _ref_rnn_common_t<prop_kind::backward>;
 } // namespace sycl
+} // generic
 } // namespace gpu
 } // namespace impl
 } // namespace dnnl
