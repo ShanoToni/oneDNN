@@ -693,6 +693,18 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
             this->dst_md(1), this->diff_dst_md(0), this->desc()->bias_desc,
             acc_data_t);
 
+    copy_init_layer_conf_ = sycl_rnn_copy_init_layer_conf_t();
+    copy_init_layer_conf_.batch = rnn_conf.mb;
+    copy_init_layer_conf_.slc = rnn_conf.slc;
+    copy_init_layer_conf_.n_iter = rnn_conf.n_iter;
+    copy_init_layer_conf_.n_layer = rnn_conf.n_layer;
+    copy_init_layer_conf_.n_dir = rnn_conf.n_dir;
+    copy_init_layer_conf_.n_states = rnn_conf.n_states;
+    copy_init_layer_conf_.states_ws_ld = rnn_conf.states_ws_ld;
+    copy_init_layer_conf_.lr = !one_of(rnn_conf.exec_dir, r2l, r2l);
+    copy_init_layer_conf_.rl = !one_of(rnn_conf.exec_dir, l2r, l2r);
+    copy_init_layer_conf_.src_md = xpu::sycl::md_t(this->src_md(0));
+
     if (rnn_conf.is_int8) {
         auto has_trivial_strides = [](const memory_desc_wrapper &md) {
             return md.is_dense(true);
@@ -1006,6 +1018,10 @@ status_t _ref_rnn_common_t<aprop>::init(impl::engine_t *engine) {
 
     //     auto kernel_names = pd()->ocl_conf.get_kernel_names();
     //     CHECK(create_kernels(engine, kernels_, kernel_names, pd()->ocl_conf));
+
+    const auto kid = ::sycl::get_kernel_id<ref_rnn_copy_init_layer_t>();
+    this->create_kernel(engine, kid, &copy_init_layer_kernel_);
+
     bool gemm_ok = true;
     auto create_nested_gemm =
             [&](const std::shared_ptr<primitive_desc_t> &prim_desc,
@@ -1346,16 +1362,6 @@ status_t _ref_rnn_common_t<aprop>::copy_init_layer(const exec_ctx_t &ctx,
     std::cout << "Enter copy_init_layer\n";
     nvidia::stream_t *stream
             = utils::downcast<nvidia::stream_t *>(ctx.stream());
-    auto conf = sycl_rnn_copy_init_layer_conf_t();
-    conf.batch = batch;
-    conf.slc = slc;
-    conf.n_iter = n_iter;
-    conf.n_layer = n_layer;
-    conf.n_dir = n_dir;
-    conf.n_states = n_states;
-    conf.states_ws_ld = states_ws_ld;
-    conf.lr = lr;
-    conf.rl = rl;
 
     auto block_size = 16;
     auto wg_size = 16;
@@ -1364,7 +1370,7 @@ status_t _ref_rnn_common_t<aprop>::copy_init_layer(const exec_ctx_t &ctx,
         auto src_mem_arg = CTX_IN_SYCL_KERNEL_MEMORY(DNNL_ARG_SRC);
         auto dst_mem_arg = CTX_OUT_SYCL_KERNEL_MEMORY(DNNL_ARG_DST);
 
-        ref_rnn_copy_init_layer_t copy_kernel(conf, src_mem_arg, dst_mem_arg);
+        ref_rnn_copy_init_layer_t copy_kernel(pd()->copy_init_layer_conf_, src_mem_arg, dst_mem_arg);
         size_t local_batch = 32;
         size_t local_iter = 32;
         size_t local_channel = 32;

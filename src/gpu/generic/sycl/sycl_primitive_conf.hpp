@@ -343,7 +343,6 @@ struct sycl_pooling_conf_t {
 
 struct sycl_rnn_copy_init_layer_conf_t{
     xpu::sycl::md_t src_md;
-    xpu::sycl::md_t dst_md;
     std::array<dim_t, 3> strides;
     std::array<dim_t, 3> block_strides;
     std::array<dim_t, 3> block_dims;

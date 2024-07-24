@@ -113,6 +113,8 @@ struct _ref_rnn_common_t : public primitive_t {
         std::shared_ptr<primitive_desc_t> gemm_diff_wei_layer_src_pd_;
         std::shared_ptr<primitive_desc_t> gemm_diff_wei_iter_pd_;
         std::shared_ptr<primitive_desc_t> gemm_diff_wei_iter_2_pd_;
+    
+        sycl_rnn_copy_init_layer_conf_t copy_init_layer_conf_;
 
     private:
         void init_scratchpad(dim_t workspace_size) {

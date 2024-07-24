@@ -61,11 +61,11 @@ struct ref_rnn_copy_init_layer_t{
     dim_t dst_offset = 0;
     if(conf_.lr){
         dst_offset = dst_data_offset(0, t, n, c);
-        store_float_value(dst_md().data_type(), src, dst_ptr(), dst_offset);
+        store_float_value(src_md().data_type(), src, dst_ptr(), dst_offset);
     }
     if(conf_.rl){
         dst_offset = dst_data_offset(conf_.n_dir - 1, conf_.n_iter - t - 1, n, c);
-        store_float_value(dst_md().data_type(), src, dst_ptr(), dst_offset);
+        store_float_value(src_md().data_type(), src, dst_ptr(), dst_offset);
     }
 
     // auto dst = load_float_value();
@@ -88,7 +88,6 @@ struct ref_rnn_copy_init_layer_t{
     }
 
     const xpu::sycl::md_t &src_md() const { return conf_.src_md; }
-    const xpu::sycl::md_t &dst_md() const { return conf_.dst_md; }
     void *src_ptr() const { return src_.get_pointer(); }
     void *dst_ptr() const { return dst_.get_pointer(); }
 
