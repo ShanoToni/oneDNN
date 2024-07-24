@@ -27,13 +27,13 @@ status_t cudnn_gemm_t::execute(const intel::gemm_exec_ctx_t &ctx) const {
     exec_args_t mm_args;
     memory_t a(ctx.stream()->engine(), pd()->mm_pd_->src_md(0),
                 ctx.args().a->clone());
-    memory_t b(ctx.stream()->engine(), pd()->mm_pd_->src_md(1),
+    memory_t b(ctx.stream()->engine(), pd()->mm_pd_->weights_md(0),
                 ctx.args().b->clone());
     memory_t c(ctx.stream()->engine(), pd()->mm_pd_->dst_md(),
                 ctx.args().c->clone());
     
-    mm_args[DNNL_ARG_SRC] = {&b, true};
-    mm_args[DNNL_ARG_WEIGHTS] = {&a, true};
+    mm_args[DNNL_ARG_SRC] = {&a, true};
+    mm_args[DNNL_ARG_WEIGHTS] = {&b, true};
     mm_args[DNNL_ARG_DST] = {&c, false};
     
     if (ctx.args().bias){

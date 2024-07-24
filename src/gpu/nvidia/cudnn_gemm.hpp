@@ -19,8 +19,6 @@
 
 #include "gpu/gpu_gemm_pd.hpp"
 #include "gpu/intel/gemm/gpu_gemm.hpp"
-// #include "gpu/intel/gpu_resource.hpp"
-#include "gpu/intel/primitive_conf.hpp"
 
 namespace dnnl {
 namespace impl {
@@ -38,8 +36,8 @@ struct cudnn_gemm_t : public intel::gpu_gemm_t {
             using namespace data_type;
 
             auto mm_desc = matmul_desc_t();
-            auto src_desc = src_md(1);
-            auto wei_desc = src_md(0);
+            auto src_desc = src_md(0);
+            auto wei_desc = src_md(1);
             auto bias_desc = src_md(2);
             auto dst_desc = dst_md();
 
