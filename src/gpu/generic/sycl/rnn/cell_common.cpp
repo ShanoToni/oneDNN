@@ -21,6 +21,7 @@
 namespace dnnl {
 namespace impl {
 namespace gpu {
+namespace generic {
 namespace sycl {
 
 using namespace dnnl::impl::utils;
@@ -124,7 +125,7 @@ cell_execution_sig((_ref_rnn_common_t<aprop>::cell_execution)) {
     const rnn_offsets_t &offsets = this->pd()->off;
 
     // const bool use_cell = ocl_conf.cell_comp.is_enabled;
-    auto use_cell = true; // TODO
+    auto use_cell = false; // TODO
 
     strides_t<4> user_layer_strides {[&]() {
         auto s = user_data.src_layer_strides(dir);
@@ -227,6 +228,7 @@ cell_execution_sig((_ref_rnn_common_t<aprop>::cell_execution)) {
 template cell_execution_sig(ref_rnn_fwd_t::cell_execution);
 template cell_execution_sig(ref_rnn_bwd_t::cell_execution);
 } // namespace sycl
+} // namespace generic
 } // namespace gpu
 } // namespace impl
 } // namespace dnnl

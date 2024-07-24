@@ -107,6 +107,7 @@
 namespace dnnl {
 namespace impl {
 namespace gpu {
+namespace generic {
 namespace sycl {
 
 template <size_t ndims>
@@ -1014,6 +1015,7 @@ private:
 } // namespace rnn_utils
 
 } // namespace sycl
+} // namespace generic
 } // namespace gpu
 } // namespace impl
 } // namespace dnnl

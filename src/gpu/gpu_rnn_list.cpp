@@ -36,12 +36,12 @@ const std::map<pk_impl_key_t, std::vector<impl_list_item_t>>
         impl_list_map REG_RNN_P({
     {{forward}, {
         GPU_INSTANCE_INTEL(intel::ocl::ref_rnn_fwd_t)
-        GPU_INSTANCE_GENERIC_SYCL(sycl::ref_rnn_fwd_t)
+        GPU_INSTANCE_GENERIC_SYCL(generic::sycl::ref_rnn_fwd_t)
         nullptr,
     }},
     {{backward}, REG_BWD_PK({
         GPU_INSTANCE_INTEL(intel::ocl::ref_rnn_bwd_t)
-        // GPU_INSTANCE_GENERIC_SYCL(sycl::ref_rnn_bwd_t)
+        GPU_INSTANCE_GENERIC_SYCL(generic::sycl::ref_rnn_bwd_t)
         nullptr,
     })},
 });

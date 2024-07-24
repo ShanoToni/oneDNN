@@ -23,6 +23,7 @@
 namespace dnnl {
 namespace impl {
 namespace gpu {
+namespace generic {
 namespace sycl {
 #define AOC array_offset_calculator
 
@@ -604,6 +605,7 @@ const memory_storage_t &rnn_utils::get_storage(
 }
 
 } // namespace sycl
+} // namespace generic
 } // namespace gpu
 } // namespace impl
 } // namespace dnnl

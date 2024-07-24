@@ -20,6 +20,7 @@
 namespace dnnl {
 namespace impl {
 namespace gpu {
+namespace generic {
 namespace sycl {
 
 using namespace dnnl::impl::gpu::intel::gpu_utils;
@@ -27,6 +28,7 @@ using namespace rnn_utils;
 
 template <prop_kind_t aprop>
 elemwise_sig((_ref_rnn_common_t<aprop>::rnn_elemwise)) {
+    return status::success;
     // auto nd_range = get_nd_range({dhc,
     //         utils::div_up(
     //                 batch, aprop == prop_kind::forward ? 1 : bwd_batch_block)});
@@ -101,6 +103,7 @@ template elemwise_sig(ref_rnn_bwd_t::rnn_elemwise);
 
 template <prop_kind_t aprop>
 elemwise_sig((_ref_rnn_common_t<aprop>::lstm_elemwise)) {
+    return status::success;
     // auto nd_range = get_nd_range({dhc,
     //         utils::div_up(
     //                 batch, aprop == prop_kind::forward ? 1 : bwd_batch_block)});
@@ -176,6 +179,8 @@ template elemwise_sig(ref_rnn_bwd_t::lstm_elemwise);
 
 template <prop_kind_t aprop>
 elemwise_sig((_ref_rnn_common_t<aprop>::lstm_elemwise_u8s8)) {
+
+    return status::success;
     // auto nd_range = get_nd_range({dhc,
     //         utils::div_up(
     //                 batch, aprop == prop_kind::forward ? 1 : bwd_batch_block)});
@@ -386,6 +391,7 @@ template elemwise_sig(ref_rnn_bwd_t::lstm_elemwise_u8s8);
 // template elemwise_sig_gru(ref_rnn_fwd_t::gru_elemwise);
 // template elemwise_sig_gru(ref_rnn_bwd_t::gru_elemwise);
 } // namespace sycl
+} // namespace generic
 } // namespace gpu
 } // namespace impl
 } // namespace dnnl
