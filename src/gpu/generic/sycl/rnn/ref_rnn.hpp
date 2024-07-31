@@ -115,6 +115,8 @@ struct _ref_rnn_common_t : public primitive_t {
         std::shared_ptr<primitive_desc_t> gemm_diff_wei_iter_2_pd_;
     
         sycl_rnn_copy_init_layer_conf_t copy_init_layer_conf_;
+        sycl_rnn_copy_init_iter_conf_t copy_init_iter_conf_;
+        sycl_rnn_copy_res_layer_conf_t copy_res_layer_conf_;
 
     private:
         void init_scratchpad(dim_t workspace_size) {
@@ -276,6 +278,8 @@ private:
     elemwise_gru_lbr_f elemwise_gru_lbr = nullptr;
 
     kernel_t copy_init_layer_kernel_;
+    kernel_t copy_init_iter_kernel_;
+    kernel_t copy_res_layer_kernel_;
 
     enum { SCALES_ = 0, TM_SCALES_ = 1 };
 };

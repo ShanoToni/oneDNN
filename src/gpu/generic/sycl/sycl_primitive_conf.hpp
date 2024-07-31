@@ -343,9 +343,6 @@ struct sycl_pooling_conf_t {
 
 struct sycl_rnn_copy_init_layer_conf_t{
     xpu::sycl::md_t src_md;
-    std::array<dim_t, 3> strides;
-    std::array<dim_t, 3> block_strides;
-    std::array<dim_t, 3> block_dims;
     dim_t batch; 
     dim_t slc; 
     dim_t n_iter; 
@@ -355,6 +352,44 @@ struct sycl_rnn_copy_init_layer_conf_t{
     dim_t states_ws_ld;
     bool lr;
     bool rl;
+};
+
+struct sycl_rnn_copy_init_iter_conf_t{
+    xpu::sycl::md_t src_iter_md;
+    xpu::sycl::md_t src_iter_c_md;
+    float shift;
+    float scale;
+    dim_t batch; 
+    dim_t dhc; 
+    dim_t sic; 
+    dim_t n_iter; 
+    dim_t n_layer;
+    dim_t n_dir; 
+    dim_t n_states;
+    dim_t states_ws_ld;
+    bool lr;
+    bool rl;
+    bool quantize;
+    bool with_iter_c;
+};
+
+struct sycl_rnn_copy_res_layer_conf_t{
+    xpu::sycl::md_t dst_md;
+    float shift;
+    float scale;
+    dim_t batch; 
+    dim_t dhc; 
+    dim_t slc; 
+    dim_t n_iter; 
+    dim_t n_layer;
+    dim_t n_dir; 
+    dim_t n_states;
+    dim_t states_ws_ld;
+    bool lr;
+    bool rl;
+    bool dequantize;
+    dnnl_rnn_direction_t direction;
+    
 };
 
 

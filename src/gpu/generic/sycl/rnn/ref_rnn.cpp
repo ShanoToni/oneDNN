@@ -693,18 +693,6 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
             this->dst_md(1), this->diff_dst_md(0), this->desc()->bias_desc,
             acc_data_t);
 
-    copy_init_layer_conf_ = sycl_rnn_copy_init_layer_conf_t();
-    copy_init_layer_conf_.batch = rnn_conf.mb;
-    copy_init_layer_conf_.slc = rnn_conf.slc;
-    copy_init_layer_conf_.n_iter = rnn_conf.n_iter;
-    copy_init_layer_conf_.n_layer = rnn_conf.n_layer;
-    copy_init_layer_conf_.n_dir = rnn_conf.n_dir;
-    copy_init_layer_conf_.n_states = rnn_conf.n_states;
-    copy_init_layer_conf_.states_ws_ld = rnn_conf.states_ws_ld;
-    copy_init_layer_conf_.lr = !one_of(rnn_conf.exec_dir, r2l, r2l);
-    copy_init_layer_conf_.rl = !one_of(rnn_conf.exec_dir, l2r, l2r);
-    copy_init_layer_conf_.src_md = xpu::sycl::md_t(this->src_md(0));
-
     if (rnn_conf.is_int8) {
         auto has_trivial_strides = [](const memory_desc_wrapper &md) {
             return md.is_dense(true);
@@ -787,6 +775,52 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
 
     VDISPATCH_RNN_SC(init_ocl_conf<aprop>(rnn_conf, this, this->off),
             "init_ocl_conf<>()");
+
+    copy_init_layer_conf_ = sycl_rnn_copy_init_layer_conf_t();
+    copy_init_layer_conf_.batch = rnn_conf.mb;
+    copy_init_layer_conf_.slc = rnn_conf.slc;
+    copy_init_layer_conf_.n_iter = rnn_conf.n_iter;
+    copy_init_layer_conf_.n_layer = rnn_conf.n_layer;
+    copy_init_layer_conf_.n_dir = rnn_conf.n_dir;
+    copy_init_layer_conf_.n_states = rnn_conf.n_states;
+    copy_init_layer_conf_.states_ws_ld = rnn_conf.states_ws_ld;
+    copy_init_layer_conf_.lr = !one_of(rnn_conf.exec_dir, r2l, r2l);
+    copy_init_layer_conf_.rl = !one_of(rnn_conf.exec_dir, l2r, l2r);
+    copy_init_layer_conf_.src_md = xpu::sycl::md_t(this->src_md(0));
+
+    copy_init_iter_conf_ = sycl_rnn_copy_init_iter_conf_t();
+    copy_init_iter_conf_.batch = rnn_conf.mb;
+    copy_init_iter_conf_.sic = rnn_conf.sic;
+    copy_init_iter_conf_.dhc = rnn_conf.dhc;
+    copy_init_iter_conf_.n_iter = rnn_conf.n_iter;
+    copy_init_iter_conf_.n_layer = rnn_conf.n_layer;
+    copy_init_iter_conf_.n_dir = rnn_conf.n_dir;
+    copy_init_iter_conf_.n_states = rnn_conf.n_states;
+    copy_init_iter_conf_.states_ws_ld = rnn_conf.states_ws_ld;
+    copy_init_iter_conf_.quantize = this->with_src_iter()
+            && this->src_md(1)->data_type == data_type::f32 && rnn_conf.is_int8;
+    copy_init_iter_conf_.with_iter_c = this->with_src_iter_c();
+    copy_init_iter_conf_.src_iter_md = xpu::sycl::md_t(this->src_md(1));
+    if (this->with_src_iter_c()) {
+        copy_init_iter_conf_.src_iter_c_md = xpu::sycl::md_t(this->src_md(2));
+    }
+    copy_init_iter_conf_.scale = (this->attr()->rnn_data_qparams_.scale_);
+    copy_init_iter_conf_.shift = (this->attr()->rnn_data_qparams_.shift_);
+
+    copy_res_layer_conf_ = sycl_rnn_copy_res_layer_conf_t();
+    copy_res_layer_conf_.batch = rnn_conf.mb;
+    copy_res_layer_conf_.slc = rnn_conf.sic;
+    copy_res_layer_conf_.dhc = rnn_conf.dhc;
+    copy_res_layer_conf_.n_iter = rnn_conf.n_iter;
+    copy_res_layer_conf_.n_layer = rnn_conf.n_layer;
+    copy_res_layer_conf_.n_dir = rnn_conf.n_dir;
+    copy_res_layer_conf_.n_states = rnn_conf.n_states;
+    copy_res_layer_conf_.states_ws_ld = rnn_conf.states_ws_ld;
+    copy_res_layer_conf_.dst_md = xpu::sycl::md_t(this->dst_md(0));
+    copy_res_layer_conf_.lr = !one_of(rnn_conf.exec_dir, r2l, r2l);
+    copy_res_layer_conf_.rl = !one_of(rnn_conf.exec_dir, l2r, l2r);
+    copy_res_layer_conf_.dequantize = this->dst_md(0)->data_type == data_type::f32 && rnn_conf.is_int8;
+    copy_res_layer_conf_.direction = this->direction();
 
     dim_t batch = rnn_conf.mb;
     dim_t n_gates = rnn_conf.n_gates;
@@ -1019,8 +1053,15 @@ status_t _ref_rnn_common_t<aprop>::init(impl::engine_t *engine) {
     //     auto kernel_names = pd()->ocl_conf.get_kernel_names();
     //     CHECK(create_kernels(engine, kernels_, kernel_names, pd()->ocl_conf));
 
-    const auto kid = ::sycl::get_kernel_id<ref_rnn_copy_init_layer_t>();
-    this->create_kernel(engine, kid, &copy_init_layer_kernel_);
+    const auto copy_layer_kid
+            = ::sycl::get_kernel_id<ref_rnn_copy_init_layer_t>();
+    const auto copy_iter_kid
+            = ::sycl::get_kernel_id<ref_rnn_copy_init_iter_t>();
+    const auto copy_res_layer_kid
+            = ::sycl::get_kernel_id<ref_rnn_copy_res_layer_t>();
+    this->create_kernel(engine, copy_layer_kid, &copy_init_layer_kernel_);
+    this->create_kernel(engine, copy_iter_kid, &copy_init_iter_kernel_);
+    this->create_kernel(engine, copy_res_layer_kid, &copy_res_layer_kernel_);
 
     bool gemm_ok = true;
     auto create_nested_gemm =
@@ -1214,6 +1255,20 @@ gemm_sig((_ref_rnn_common_t<aprop>::gemm_primitive)) {
     return status::success;
 }
 
+#define PRINT_VEC(data, size) \
+    { \
+        void *raw_data = nullptr; \
+        data.map_data(&raw_data, nullptr, size * sizeof(float)); \
+        for (auto i = 0; i < size; i++) { \
+            std::cout << #data << "[" << i \
+                      << "] = " << static_cast<float *>(raw_data)[i] << "\n"; \
+        } \
+        std::cout << "\n\n"; \
+        data.unmap_data(raw_data, nullptr); \
+    }
+
+
+
 //*************** Grid computations strategy: linear ***************//
 template <prop_kind_t aprop>
 grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
@@ -1253,11 +1308,13 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
                         ? user_data.src_layer(dir, 0, true)
                         : workspace.states_range(
                                 lay - 1, lay - 1, dir, dir, 0, n_iter);
+                PRINT_VEC(grid_layer.get_storage(), 64);
 
                 auto gemm_grid_layer_fwd = (!rnn.copy_src_layer && lay == 0)
                         ? gemm_layer_fwd_src
                         : gemm_layer_fwd;
 
+                PRINT_VEC(user_data.wei_layer(lay, dir, true).get_storage(), 64);
                 CHECK(gemm_primitive(engine, ctx,
                         user_data.wei_layer(lay, dir, true), grid_layer,
                         *scratch.gates(), gemm_grid_layer_fwd));
@@ -1338,18 +1395,6 @@ status_t _ref_rnn_common_t<aprop>::bias_prepare(const exec_ctx_t &ctx,
 //             kernels_[kernel_id::bias_prepare], arg_list);
 // }
 
-#define PRINT_VEC(data, size) \
-    { \
-        void *raw_data = nullptr; \
-        data.map_data(&raw_data, nullptr, size * sizeof(float)); \
-        for (auto i = 0; i < size; i++) { \
-            std::cout << #data << "[" << i \
-                      << "] = " << static_cast<float *>(raw_data)[i] << "\n"; \
-        } \
-        std::cout << "\n\n"; \
-        data.unmap_data(raw_data, nullptr); \
-    }
-
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::copy_init_layer(const exec_ctx_t &ctx,
         // compute::compute_stream_t *compute_stream,
@@ -1365,19 +1410,30 @@ status_t _ref_rnn_common_t<aprop>::copy_init_layer(const exec_ctx_t &ctx,
 
     auto block_size = 16;
     auto wg_size = 16;
+    PRINT_VEC(input, 16)
+    PRINT_VEC(ws_states, 64)
 
     parallel_for(ctx, copy_init_layer_kernel_, [&](::sycl::handler &cgh) {
-        auto src_mem_arg = CTX_IN_SYCL_KERNEL_MEMORY(DNNL_ARG_SRC);
-        auto dst_mem_arg = CTX_OUT_SYCL_KERNEL_MEMORY(DNNL_ARG_DST);
+        auto src_mem_arg
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        &input)
+                          ->get_in_memory_arg(ctx.stream(),
+                                  cgh); // CTX_IN_SYCL_KERNEL_MEMORY(DNNL_ARG_SRC);
+        auto dst_mem_arg
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        &ws_states)
+                          ->get_out_memory_arg(ctx.stream(),
+                                  cgh); // CTX_OUT_SYCL_KERNEL_MEMORY(DNNL_ARG_DST);
 
-        ref_rnn_copy_init_layer_t copy_kernel(pd()->copy_init_layer_conf_, src_mem_arg, dst_mem_arg);
-        size_t local_batch = 32;
-        size_t local_iter = 32;
-        size_t local_channel = 32;
+        ref_rnn_copy_init_layer_t copy_kernel(
+                pd()->copy_init_layer_conf_, src_mem_arg, dst_mem_arg);
+        size_t local_batch = 2;
+        size_t local_iter = 4;
+        size_t local_channel = 4;
         size_t global_batch = std::max(static_cast<size_t>(batch), local_batch);
         size_t global_iter = std::max(static_cast<size_t>(n_iter), local_iter);
         size_t global_channels
-                = std::max(static_cast<size_t>(n_states), local_channel);
+                = std::max(static_cast<size_t>(slc), local_channel);
         cgh.parallel_for(
                 ::sycl::nd_range<3>(::sycl::range<3>(global_iter, global_batch,
                                             global_channels),
@@ -1386,11 +1442,9 @@ status_t _ref_rnn_common_t<aprop>::copy_init_layer(const exec_ctx_t &ctx,
                 copy_kernel);
     });
 
-    // PRINT_VEC(input, 16)
-    // PRINT_VEC(ws_states, 16)
-    // stream->copy(input, ws_states, 16, stream->ctx().get_deps(), stream->ctx().get_deps());
-    // stream->wait();
-    // PRINT_VEC(ws_states, 16)
+    //     stream->copy(input, ws_states, 16, stream->ctx().get_deps(), stream->ctx().get_deps());
+    stream->wait();
+    PRINT_VEC(ws_states, 64)
     // return stream->interop_task([&](::sycl::handler &cgh) {
     // auto in_arg = xpu::sycl::interop_memory_arg_t<
     //         ::sycl::access::mode::read>(&input.get(), cgh);
@@ -1474,11 +1528,49 @@ status_t _ref_rnn_common_t<aprop>::copy_init_iter(const exec_ctx_t &ctx,
             = utils::downcast<nvidia::stream_t *>(ctx.stream());
     // ws.states().set_offset(16);
     PRINT_VEC(firstit_states, 16)
-    PRINT_VEC((ws.states()), 16)
-    stream->copy(firstit_states, ws.states(), 16, stream->ctx().get_deps(),
-            stream->ctx().get_deps());
+    PRINT_VEC((ws.states()), 64)
+
+    parallel_for(ctx, copy_init_iter_kernel_, [&](::sycl::handler &cgh) {
+        auto src_iter_mem_arg
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        &firstit_states)
+                          ->get_in_memory_arg(ctx.stream(),
+                                  cgh); // CTX_IN_SYCL_KERNEL_MEMORY(DNNL_ARG_SRC);
+        auto src_iter_c_mem_arg
+                =xpu::sycl::memory_storage_base_t::empty_in_memory_arg(
+                    ctx.stream(), cgh);
+                // = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                //         &firstit_c_states)
+                //           ->get_in_memory_arg(ctx.stream(),
+                //                   cgh); // CTX_IN_SYCL_KERNEL_MEMORY(DNNL_ARG_SRC);
+        auto ws_mem_arg
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        &ws.states())
+                          ->get_out_memory_arg(ctx.stream(),
+                                  cgh); // CTX_OUT_SYCL_KERNEL_MEMORY(DNNL_ARG_DST);
+
+        ref_rnn_copy_init_iter_t copy_kernel(pd()->copy_init_iter_conf_,
+                src_iter_mem_arg, src_iter_c_mem_arg, ws_mem_arg);
+        size_t local_lay_dir = 4;
+        size_t local_batch = 2;
+        size_t local_channel = 4;
+        size_t global_batch = std::max(static_cast<size_t>(batch), local_batch);
+        size_t global_channels
+                = std::max(static_cast<size_t>(dhc), local_channel);
+        size_t global_lay_dir
+                = std::max(static_cast<size_t>(n_layer * n_dir), local_lay_dir);
+        cgh.parallel_for(
+                ::sycl::nd_range<3>(::sycl::range<3>(global_lay_dir,
+                                            global_batch, global_channels),
+                        ::sycl::range<3>(
+                                local_lay_dir, local_batch, local_channel)),
+                copy_kernel);
+    });
+
+    //     stream->copy(firstit_states, ws.states(), 16, stream->ctx().get_deps(),
+    //             stream->ctx().get_deps());
     stream->wait();
-    PRINT_VEC((ws.states()), 16)
+    PRINT_VEC((ws.states()), 64)
     return status::success;
 }
 
@@ -1557,17 +1649,45 @@ status_t _ref_rnn_common_t<aprop>::copy_res_layer(const exec_ctx_t &ctx,
     std::cout << "Enter copy_res_layer\n";
     nvidia::stream_t *stream
             = utils::downcast<nvidia::stream_t *>(ctx.stream());
-    PRINT_VEC(ws_states, 16)
-    auto tmp = ws_states.clone();
-    tmp->set_offset(tmp->offset() + 32 * sizeof(float));
-    std::cout << "offset: " << tmp->offset() << "\n";
-    auto t = tmp.get();
-    PRINT_VEC((*t), 16)
+    PRINT_VEC(ws_states, 64)
     PRINT_VEC(dst_last_layer, 16)
-    stream->copy(*t, dst_last_layer, 16, stream->ctx().get_deps(),
-            stream->ctx().get_deps());
-    PRINT_VEC(dst_last_layer, 16)
+
+    parallel_for(ctx, copy_res_layer_kernel_, [&](::sycl::handler &cgh) {
+        auto ws_mem_arg
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        &ws_states)
+                          ->get_in_memory_arg(ctx.stream(),
+                                  cgh); // CTX_OUT_SYCL_KERNEL_MEMORY(DNNL_ARG_DST);
+        auto dst_mem_arg
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        &dst_last_layer)
+                          ->get_out_memory_arg(ctx.stream(),
+                                  cgh); // CTX_IN_SYCL_KERNEL_MEMORY(DNNL_ARG_SRC);
+
+        ref_rnn_copy_res_layer_t copy_kernel(pd()->copy_res_layer_conf_,
+                ws_mem_arg, dst_mem_arg);
+        size_t local_batch = 2;
+        size_t local_iter = 4;
+        size_t local_channel = 4;
+        size_t global_batch = std::max(static_cast<size_t>(batch), local_batch);
+        size_t global_iter = std::max(static_cast<size_t>(n_iter), local_iter);
+        size_t global_channels
+                = std::max(static_cast<size_t>(slc), local_channel);
+        cgh.parallel_for(
+                ::sycl::nd_range<3>(::sycl::range<3>(global_iter, global_batch,
+                                            global_channels),
+                        ::sycl::range<3>(
+                                local_iter, local_batch, local_channel)),
+                copy_kernel);
+    });
+
+
+    std::cout << "After copy_res_layer execution\n";
+
+//     stream->copy(*t, dst_last_layer, 16, stream->ctx().get_deps(),
+//             stream->ctx().get_deps());
     stream->wait();
+    PRINT_VEC(dst_last_layer, 16)
     return status::success;
 }
 
@@ -1637,7 +1757,7 @@ status_t _ref_rnn_common_t<aprop>::copy_res_iter(const exec_ctx_t &ctx,
     std::cout << "Enter copy_res_iter\n";
     nvidia::stream_t *stream
             = utils::downcast<nvidia::stream_t *>(ctx.stream());
-    PRINT_VEC(ws.states(), 16)
+    PRINT_VEC(ws.states(), 64)
     auto tmp = ws.states().clone();
     tmp->set_offset(tmp->offset() + 32 * sizeof(float));
     std::cout << "offset: " << tmp->offset() << "\n";
