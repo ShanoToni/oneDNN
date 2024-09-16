@@ -1097,6 +1097,18 @@ status_t _ref_rnn_common_t<aprop>::init_res_storage(
     return status::success;
 }
 
+#define PRINT_VEC(data, size) \
+    { \
+        void *raw_data = nullptr; \
+        data.map_data(&raw_data, nullptr, size * sizeof(float)); \
+        for (auto i = 0; i < size; i++) { \
+            std::cout << #data << "[" << i \
+                      << "] = " << static_cast<float *>(raw_data)[i] << "\n"; \
+        } \
+        std::cout << "\n\n"; \
+        data.unmap_data(raw_data, nullptr); \
+    }
+
 template <prop_kind_t aprop>
 gemm_sig((_ref_rnn_common_t<aprop>::gemm_primitive)) {
     // We flip A and B here since the GEMM API is row major but the
@@ -1105,6 +1117,10 @@ gemm_sig((_ref_rnn_common_t<aprop>::gemm_primitive)) {
     gemm_args.a = b.get();
     gemm_args.b = a.get();
     gemm_args.c = c.get();
+
+    PRINT_VEC(a.get_storage(), 64)
+    PRINT_VEC(b.get_storage(), 64)
+    PRINT_VEC(c.get_storage(), 64)
 
     auto gemm_ctx = gemm_exec_ctx_t(ctx, gemm_args);
 
@@ -1173,6 +1189,7 @@ gemm_sig((_ref_rnn_common_t<aprop>::gemm_primitive)) {
             break;
         default: assert(!"unknown gemm_kind"); return status::runtime_error;
     }
+    PRINT_VEC(c.get_storage(), 64)
     return status::success;
 }
 

@@ -285,6 +285,20 @@ struct cudnn_matmul_impl_t {
         return status::success;
     }
 
+#define DUMP_CUDA_TENSOR(dev_ptr, size, datatype) \
+    { \
+        std::vector<datatype> host_ctr(size); \
+        cudaMemcpy(host_ctr.data(), dev_ptr, size * sizeof(datatype), \
+                cudaMemcpyDeviceToHost); \
+        cudaDeviceSynchronize(); \
+        std::cout << #dev_ptr << "\n"; \
+        for (auto i = 0; i < size; i++) { \
+            std::cout << static_cast<int>(host_ctr[i]) << ", "; \
+            if ((i + 1) % 32 == 0) std::cout << std::endl; \
+        } \
+        std::cout << "\n\n"; \
+    }
+
     void execute(cublasHandle_t cublas_handle, cudnnHandle_t cudnn_handle,
             void *a, void *b, void *c, void *bias, void *scratch,
             void *src_scale, void *wei_scale, void *dst_scale) {
@@ -322,6 +336,7 @@ struct cudnn_matmul_impl_t {
             if (!with_eltwise_) scale /= host_dst_scale;
         }
 
+
         if (isbatched_) {
             // Calls cublasGemmStridedBatchedEx()
             if (transC_ == cublasOperation_t::CUBLAS_OP_T) {
@@ -341,16 +356,21 @@ struct cudnn_matmul_impl_t {
         } else {
             // Calls cublasGemmEx()
             if (transC_ == cublasOperation_t::CUBLAS_OP_T) {
+                DUMP_CUDA_TENSOR(a, N_*K_, float)
+                DUMP_CUDA_TENSOR(b, K_*M_, float)
                 CUBLAS_EXECUTE_FUNC(cublasGemmEx, cublas_handle,
                         flip_op(transB_), flip_op(transA_), N_, M_, K_, &scale,
                         b, src_type_, ldb_, a, weights_type_, lda_, &gemm_beta,
                         scratch, dst_type_, ldc_, acc_type_, gemm_algo_);
             } else {
+                DUMP_CUDA_TENSOR(a, M_*K_, float)
+                DUMP_CUDA_TENSOR(b, K_*N_, float)
                 CUBLAS_EXECUTE_FUNC(cublasGemmEx, cublas_handle, transA_,
                         transB_, M_, N_, K_, &scale, a, weights_type_, lda_, b,
                         src_type_, ldb_, &gemm_beta, scratch, dst_type_, ldc_,
                         acc_type_, gemm_algo_);
             }
+            DUMP_CUDA_TENSOR(c, M_*N_, float)
         }
         if (with_bias_) {
             // When bias is specified call cudnnAddTensor()

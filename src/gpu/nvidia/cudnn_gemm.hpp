@@ -17,6 +17,7 @@
 #ifndef GPU_NVIDIA_GEMM_HPP
 #define GPU_NVIDIA_GEMM_HPP
 
+#include "gpu/generic/sycl/sycl_primitive_conf.hpp"
 #include "gpu/gpu_gemm_pd.hpp"
 #include "gpu/intel/gemm/gpu_gemm.hpp"
 

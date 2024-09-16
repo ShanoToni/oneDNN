@@ -218,6 +218,18 @@ status_t gen_gemm_t::launch_nocopy(const gemm_exec_ctx_t &ctx,
     return status;
 }
 
+#define PRINT_VEC(data, size) \
+    { \
+        void *raw_data = nullptr; \
+        (data).map_data(&raw_data, nullptr, (size) * sizeof(float)); \
+        for (auto i = 0; i < (size); i++) { \
+            std::cout << #data << "[" << i \
+                      << "] = " << static_cast<float *>(raw_data)[i] << "\n"; \
+        } \
+        std::cout << "\n\n"; \
+        (data).unmap_data(raw_data, nullptr); \
+    }
+
 status_t gen_gemm_t::execute(const gemm_exec_ctx_t &ctx) const {
     auto *compute_stream
             = utils::downcast<compute::compute_stream_t *>(ctx.stream());
@@ -258,6 +270,10 @@ status_t gen_gemm_t::execute(const gemm_exec_ctx_t &ctx) const {
     auto &bias = GEMM_CTX_ARG_STORAGE(bias);
     auto &sum_ab = GEMM_CTX_ARG_STORAGE(sum_ab);
     auto *co = &c_zp;
+
+    PRINT_VEC(a, 512)
+    PRINT_VEC(b, 128)
+
     const memory_storage_t *ao = nullptr, *bo = nullptr;
     const memory_storage_t *a_scales = nullptr, *b_scales = nullptr;
 

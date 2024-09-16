@@ -63,17 +63,25 @@ public:
     interop_memory_arg_t(memory_storage_t *raw_mem, ::sycl::handler &cgh) {
         if (!raw_mem || raw_mem->is_null()) { return; }
         auto *mem = static_cast<memory_storage_base_t *>(raw_mem);
+        dim_t offset = mem->offset();
         switch (mem->memory_kind()) {
             case sycl::memory_kind::buffer: {
                 auto *buffer_storage
                         = utils::downcast<buffer_memory_storage_t *>(mem);
                 acc_.emplace(buffer_storage->buffer(), cgh);
-                offset_ = buffer_storage->base_offset();
+                offset_ = offset + buffer_storage->base_offset();
+                std::cout << "================ Interop Memory Op (buffer) "
+                             "===================\n";
+                std::cout << "Offset: " << offset_ << "\n";
                 break;
             }
             case sycl::memory_kind::usm: {
                 raw_ptr_ = utils::downcast<const usm_memory_storage_t *>(mem)
                                    ->usm_ptr();
+                offset_ = offset;
+                std::cout << "================ Interop Memory Op (usm)"
+                             "===================\n";
+                std::cout << "Offset: " << offset_ << "\n";
                 break;
             }
             default: assert(!"unexpected memory kind");
@@ -96,6 +104,10 @@ public:
 #endif
                     &ih) const {
         void *raw_ptr = nullptr;
+
+        std::cout << "================ Interop Memory Op (get_native_pointer) "
+                     "===================\n";
+        std::cout << "Offset: " << offset_ << "\n";
         if (acc_.has_value()) {
             raw_ptr = reinterpret_cast<T *>(
                     reinterpret_cast<uint8_t *>(
