@@ -26,9 +26,47 @@ namespace sycl {
 using namespace dnnl::impl::gpu::intel::gpu_utils;
 using namespace rnn_utils;
 
+#define PRINT_VEC_PTR(data, size) \
+    { \
+        void *raw_data = nullptr; \
+        data->map_data(&raw_data, nullptr, size * sizeof(float)); \
+        for (auto i = 0; i < size; i++) { \
+            std::cout << #data << "[" << i \
+                      << "] = " << static_cast<float *>(raw_data)[i] << "\n"; \
+        } \
+        std::cout << "\n\n"; \
+        data->unmap_data(raw_data, nullptr); \
+    }
+
+
 template <prop_kind_t aprop>
 elemwise_sig((_ref_rnn_common_t<aprop>::rnn_elemwise)) {
-    return status::success;
+    memory_desc_t bias_md = types::zero_md();
+    dims_t dims = {dim_t{1}, dim_t{1}, dim_t{1}, dim_t{16}};
+    memory_desc_init_by_tag(bias_md, 4,
+                            dims, data_type::f32, format_tag::ldgo);
+    memory_t a(ctx.stream()->engine(), &bias_md,
+                user_data.bias(lay, dir).get_ptr()->clone());
+    memory_t b(ctx.stream()->engine(), &bias_md,
+                scratch_gates.get_ptr()->clone());
+    memory_t c(ctx.stream()->engine(), &bias_md,
+                workspace.states(lay, dir, iter).get_ptr()->clone());
+    
+    PRINT_VEC_PTR(user_data.bias(lay, dir).get_ptr(), 16)
+    PRINT_VEC_PTR(scratch_gates.get_ptr()->clone(), 16)
+    PRINT_VEC_PTR(workspace.states(lay, dir, iter).get_ptr(), 128)
+    
+    exec_args_t bias_args;
+    bias_args[DNNL_ARG_SRC_0] = {&a, true};
+    bias_args[DNNL_ARG_SRC_1] = {&b, true};
+    bias_args[DNNL_ARG_DST] = {&c, false};
+    exec_ctx_t bias_ctx(ctx, std::move(bias_args));
+    // auto bias_exec_ctx = ctx.into_exec_ctx_t(std::move(bias_args));
+    auto status = bias_primitive->execute(bias_ctx);
+    ctx.stream()->wait();
+    PRINT_VEC_PTR(workspace.states(lay, dir, iter).get_ptr(), 128)
+
+    return status;
     // auto nd_range = get_nd_range({dhc,
     //         utils::div_up(
     //                 batch, aprop == prop_kind::forward ? 1 : bwd_batch_block)});

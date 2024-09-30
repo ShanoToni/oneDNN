@@ -50,37 +50,43 @@
             const rnn_utils::sub_buffer_t &scratch_diff_states_layer, \
             dim_t diff_states_layer_ld, const memory_storage_t *scales, \
             const memory_storage_t *tm_scales, \
-            const memory_storage_t &diff_bias) const
+            const memory_storage_t &diff_bias, \
+            const std::shared_ptr<impl::primitive_t> bias_primitive, \
+            const std::vector<std::shared_ptr<impl::primitive_t>> activation_primitives) const
 
-#define elemwise_sig_gru_lbr(f) \
-    status_t f(const exec_ctx_t &ctx, dim_t dir, dim_t lay, dim_t iter, \
-            dim_t dhc, dim_t batch, dim_t bwd_batch_block, \
-            const rnn_utils::user_data_t &user_data, \
-            const rnn_utils::workspace_t &workspace, \
-            const rnn_utils::sub_buffer_t &scratch_gates, \
-            const rnn_utils::sub_buffer_t &scratch_diff_gates, \
-            const memory_storage_t &scratch_cell, \
-            const rnn_utils::sub_buffer_t &scratch_diff_states, \
-            const rnn_utils::sub_buffer_t &scratch_diff_states_iter, \
-            const rnn_utils::sub_buffer_t &scratch_diff_states_layer, \
-            dim_t diff_states_layer_ld, const memory_storage_t *tm_scales, \
-            const memory_storage_t &diff_bias) const
+// #define elemwise_sig_gru_lbr(f) \
+//     status_t f(const exec_ctx_t &ctx, dim_t dir, dim_t lay, dim_t iter, \
+//             dim_t dhc, dim_t batch, dim_t bwd_batch_block, \
+//             const rnn_utils::user_data_t &user_data, \
+//             const rnn_utils::workspace_t &workspace, \
+//             const rnn_utils::sub_buffer_t &scratch_gates, \
+//             const rnn_utils::sub_buffer_t &scratch_diff_gates, \
+//             const memory_storage_t &scratch_cell, \
+//             const rnn_utils::sub_buffer_t &scratch_diff_states, \
+//             const rnn_utils::sub_buffer_t &scratch_diff_states_iter, \
+//             const rnn_utils::sub_buffer_t &scratch_diff_states_layer, \
+//             dim_t diff_states_layer_ld, const memory_storage_t *tm_scales, \
+//             const memory_storage_t &diff_bias,
+//             const primitive_t * bias_prim,
+//             const std::vector<primitive_t *> activation_prims) const
 
-#define elemwise_sig_gru(f) \
-    status_t f(const exec_ctx_t &ctx, dim_t dir, dim_t lay, dim_t iter, \
-            dim_t dhc, dim_t batch, dim_t bwd_batch_block, \
-            const rnn_utils::user_data_t &user_data, \
-            const rnn_utils::workspace_t &workspace, \
-            const rnn_utils::sub_buffer_t &scratch_gates, \
-            const rnn_utils::sub_buffer_t &scratch_diff_gates, \
-            const memory_storage_t &scratch_cell, \
-            const rnn_utils::sub_buffer_t &scratch_diff_states, \
-            const rnn_utils::sub_buffer_t &scratch_diff_states_iter, \
-            const rnn_utils::sub_buffer_t &scratch_diff_states_layer, \
-            dim_t diff_states_layer_ld, \
-            const rnn_utils::sub_buffer_t &scratch_dhG1, \
-            const memory_storage_t *tm_scales, \
-            const memory_storage_t &diff_bias, int part) const
+// #define elemwise_sig_gru(f) \
+//     status_t f(const exec_ctx_t &ctx, dim_t dir, dim_t lay, dim_t iter, \
+//             dim_t dhc, dim_t batch, dim_t bwd_batch_block, \
+//             const rnn_utils::user_data_t &user_data, \
+//             const rnn_utils::workspace_t &workspace, \
+//             const rnn_utils::sub_buffer_t &scratch_gates, \
+//             const rnn_utils::sub_buffer_t &scratch_diff_gates, \
+//             const memory_storage_t &scratch_cell, \
+//             const rnn_utils::sub_buffer_t &scratch_diff_states, \
+//             const rnn_utils::sub_buffer_t &scratch_diff_states_iter, \
+//             const rnn_utils::sub_buffer_t &scratch_diff_states_layer, \
+//             dim_t diff_states_layer_ld, \
+//             const rnn_utils::sub_buffer_t &scratch_dhG1, \
+//             const memory_storage_t *tm_scales, \
+//             const memory_storage_t &diff_bias, int part,
+//             const primitive_t * bias_prim,
+//             const std::vector<primitive_t *> activation_prims) const
 
 #define cell_execution_sig(f) \
     status_t f(impl::engine_t *engine, const exec_ctx_t &ctx, dim_t dir, dim_t lay, \
@@ -88,7 +94,8 @@
             const rnn_utils::workspace_t &workspace, \
             const rnn_utils::scratch_t &scratch, \
             const memory_storage_t &diff_bias, const memory_storage_t *scales, \
-            const memory_storage_t *tm_scales) const
+            const memory_storage_t *tm_scales, const std::shared_ptr<impl::primitive_t> bias_primitive, \
+            const std::vector<std::shared_ptr<impl::primitive_t>> activation_primitives) const
 
 #define grid_execution_sig(f) \
     status_t f(impl::engine_t *engine, const exec_ctx_t &ctx, \
@@ -96,7 +103,8 @@
             const rnn_utils::workspace_t &workspace, \
             const rnn_utils::scratch_t &scratch, \
             const memory_storage_t &diff_bias, const memory_storage_t *scales, \
-            const memory_storage_t *tm_scales) const
+            const memory_storage_t *tm_scales, const std::shared_ptr<impl::primitive_t> bias_primitive, \
+            const std::vector<std::shared_ptr<impl::primitive_t>> activation_primitives) const
 
 #define gemm_sig(f) \
     status_t f(impl::engine_t *engine, const exec_ctx_t &ctx, \
@@ -412,12 +420,18 @@ struct sub_buffer_t {
     sub_buffer_t(const memory_storage_t &buffer, dim_t offset = 0,
             dim_t size = unset)
         : buffer_(buffer.is_null() ? nullptr : buffer.clone()) {
-        if (buffer_) buffer_->set_offset(static_cast<size_t>(offset));
+        if (buffer_) {
+            buffer_->set_offset(static_cast<size_t>(offset));
+            std::cout << "======================= Sub-buffer offset: " << offset << " ==========================\n";
+        }
     }
 
     sub_buffer_t(const sub_buffer_t &buffer, dim_t offset = 0)
         : buffer_(buffer ? buffer.buffer_->clone() : nullptr) {
-        if (buffer_) buffer_->set_offset(buffer.offset() + offset);
+        if (buffer_) {
+            std::cout << "======================= Sub-buffer offset: " << offset << " ==========================\n";
+            buffer_->set_offset(buffer.offset() + offset);
+            }
     }
 
     ~sub_buffer_t() = default;
@@ -437,6 +451,12 @@ struct sub_buffer_t {
         gpu_assert(buffer_->offset() % types::data_type_size(dt) == 0);
         return buffer_->offset() / types::data_type_size(dt);
     }
+    
+    const std::unique_ptr<memory_storage_t> & get_ptr() const{
+        return buffer_;
+    }
+
+
 
 private:
     std::unique_ptr<memory_storage_t> buffer_;
@@ -523,6 +543,7 @@ struct user_data_t : public data_helper_t {
         dim_t offset = iter * iter_stride;
         auto cell_size = iter_stride;
         auto n_cells = all_iter ? conf_.n_iter - iter : 1;
+        std::cout << "============================== src_layer() (offset): " << offset << " ==============================";
         return {src_layer(), offset, cell_size * n_cells};
     }
     strides_t<3> src_layer_strides(dim_t dir) const {
@@ -546,6 +567,7 @@ struct user_data_t : public data_helper_t {
 
         if (is_multi_cell) return {wei_layer(), offset};
 
+        std::cout << "============================== wei_layer() top (offset): " << offset << " ==============================";
         return {wei_layer(), offset, cell_size};
     }
 
@@ -557,6 +579,7 @@ struct user_data_t : public data_helper_t {
         dim_t dir_stride = offsets_.weights_iter[1];
         dim_t offset = (lay * lay_stride + dir * dir_stride) * t;
         dim_t cell_size = dir_stride * t;
+        std::cout << "============================== wei_layer() bot (offset): " << offset << " ==============================";
         return {wei_iter(), offset, cell_size};
     }
 
@@ -742,6 +765,7 @@ struct workspace_t : public data_helper_t {
         auto i2 = time + 1;
         auto off_ = get_offset(states_strides(), {i0, dir, i2, 0})
                 * conf_.ws_states_elsz;
+        std::cout << "========================= states(layer, dim, time): "<< off_ <<" ==========================\n";
         return {states(), off_, conf_.ws_states_cell_size};
     }
 
@@ -756,6 +780,7 @@ struct workspace_t : public data_helper_t {
                 * conf_.ws_states_elsz;
         auto off_end = calc_off_ws_state(layer_end, dir_end, time_end, 0, 0)
                 * conf_.ws_states_elsz;
+        std::cout << "========================= states_range(): "<< off_start <<" ==========================\n";
         return {states(), off_start, off_end - off_start};
     }
 

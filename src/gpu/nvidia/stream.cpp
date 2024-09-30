@@ -111,6 +111,7 @@ status_t stream_t::interop_task(
             sycl_cuda_interop_(cgh);
         });
         this->sycl_ctx().get_sycl_deps().events = {event};
+        queue().wait();
         return status::success;
     } catch (std::runtime_error &e) { return status::runtime_error; }
 }

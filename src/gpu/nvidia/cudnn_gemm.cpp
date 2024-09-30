@@ -37,9 +37,10 @@ namespace nvidia {
 
 status_t cudnn_gemm_t::execute(const intel::gemm_exec_ctx_t &ctx) const {
     exec_args_t mm_args;
+    std::cout << "==================== Entering cudnn_gemm_t::execute() ===================== \n";
     PRINT_VEC(*ctx.args().a, 64)
     PRINT_VEC(*ctx.args().b, 64)
-    PRINT_VEC(*ctx.args().c, 64)
+    PRINT_VEC(*ctx.args().c, 16)
     memory_t a(ctx.stream()->engine(), pd()->mm_pd_->src_md(0),
                 ctx.args().a->clone());
     memory_t b(ctx.stream()->engine(), pd()->mm_pd_->weights_md(0),
@@ -47,8 +48,8 @@ status_t cudnn_gemm_t::execute(const intel::gemm_exec_ctx_t &ctx) const {
     memory_t c(ctx.stream()->engine(), pd()->mm_pd_->dst_md(),
                 ctx.args().c->clone());
     
-    mm_args[DNNL_ARG_SRC] = {&b, true};
-    mm_args[DNNL_ARG_WEIGHTS] = {&a, true};
+    mm_args[DNNL_ARG_SRC] = {&a, true};
+    mm_args[DNNL_ARG_WEIGHTS] = {&b, true};
     mm_args[DNNL_ARG_DST] = {&c, false};
     
     if (ctx.args().bias){
@@ -59,6 +60,7 @@ status_t cudnn_gemm_t::execute(const intel::gemm_exec_ctx_t &ctx) const {
 
     auto mm_exec_ctx = ctx.into_exec_ctx_t(std::move(mm_args));
     auto status = matmul_->execute(mm_exec_ctx);
+    std::cout << "==================== Exiting cudnn_gemm_t::execute() ===================== \n";
 //     if (exec_d->batch() == 0 || exec_d->n() == 0) return status::success;
 
 //     dim_t off_a0 = a.offset() / types::data_type_size(exec_d->a_type());

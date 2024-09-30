@@ -1117,9 +1117,9 @@ gemm_sig((_ref_rnn_common_t<aprop>::gemm_primitive)) {
     gemm_args.a = b.get();
     gemm_args.b = a.get();
     gemm_args.c = c.get();
-
+    ctx.stream()->wait();
     PRINT_VEC(a.get_storage(), 64)
-    PRINT_VEC(b.get_storage(), 64)
+    PRINT_VEC(b.get_storage(), 1024)
     PRINT_VEC(c.get_storage(), 64)
 
     auto gemm_ctx = gemm_exec_ctx_t(ctx, gemm_args);

@@ -131,7 +131,7 @@ cell_execution_sig((_ref_rnn_common_t<aprop>::cell_execution)) {
         auto s = user_data.src_layer_strides(dir);
         return strides_t<4> {0, 0, s[0], s[1]};
     }()};
-
+    std::cout << "========================= cell_execution_sig ==========================\n";
     auto cell_layer = !rnn.copy_src_layer && lay == 0
             ? user_data.src_layer(dir, iter)
             : workspace.states(lay - 1, dir, iter);
@@ -148,24 +148,28 @@ cell_execution_sig((_ref_rnn_common_t<aprop>::cell_execution)) {
     auto wei_iter = user_data.wei_iter(lay, dir);
 
     if ((aprop == prop_kind::forward) || rnn.recompute_gates) {
+        std::cout << "========================= gemm_primitive (forward || recompute) ==========================\n";
         if (!rnn.merge_gemm_layer && !rnn.cell_fusion.gemm_layer) {
             auto gemm_cell_layer_fwd = !rnn.copy_src_layer && lay == 0
                     ? gemm_layer_fwd_src
                     : gemm_layer_fwd;
+            std::cout << "========================= gemm_primitive (!merge_gemm_layer && !cell_fusion.gemm_layer) ==========================\n";
             CHECK(gemm_primitive(engine, ctx, wei_layer, cell_layer,
                     scratch_gates, gemm_cell_layer_fwd));
         }
 
-        if (!rnn.cell_fusion.gemm_iter)
+        if (!rnn.cell_fusion.gemm_iter){
+            std::cout << "========================= gemm_primitive (cell_fusion gemm_iter) ==========================\n";
             CHECK(gemm_primitive(engine, ctx, wei_iter, cell_iter,
                     scratch_gates, gemm_iter_fwd));
+        }
     }
 
     if (aprop == prop_kind::forward) {
         if (!use_cell) {
             CHECK((this->*elemwise_common)(ctx, dir, lay, iter, rnn.dhc, rnn.mb,
                     1, user_data, workspace, scratch_gates, {}, {}, {}, {}, {},
-                    {}, 0, scales, tm_scales, diff_bias));
+                    {}, 0, scales, tm_scales, diff_bias, bias_primitive, activation_primitives));
         } else {
             CHECK(compute_cell_fwd(ctx, lay, dir,
                     iter, workspace, user_data, wei_layer, wei_iter, cell_layer,
@@ -200,7 +204,7 @@ cell_execution_sig((_ref_rnn_common_t<aprop>::cell_execution)) {
         CHECK((this->*elemwise_common)(ctx, dir, lay, iter, rnn.dhc, rnn.mb, 1, user_data, workspace,
                 scratch_gates, diff_gates, diff_states, diff_states_s1,
                 diff_states_iter, diff_states_iter_s1, diff_states_layer,
-                diff_states_layer_ld, scales, tm_scales, diff_bias));
+                diff_states_layer_ld, scales, tm_scales, diff_bias, bias_primitive, activation_primitives));
 
         CHECK(gemm_primitive(
                 engine, ctx, wei_iter, diff_gates, diff_states, gemm_iter_bwd));

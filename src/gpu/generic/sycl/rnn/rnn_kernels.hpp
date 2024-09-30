@@ -246,14 +246,25 @@ struct ref_rnn_copy_res_layer_t {
                     && conf_.direction
                             != dnnl_rnn_direction_t::dnnl_bidirectional_sum;
             auto src_offset = src_data_offset(dir, t, n, c);
+            ::sycl::ext::oneapi::experimental::printf(
+                "src_offset: %d, dir: %lu, t: %lu, n: %lu, c: %lu\n",
+                src_offset, dir, t, n, c);
             auto src_v
                     = load_float_value(dst_md().data_type(), src, src_offset);
 
             if (dequantize_at_copy) {
                 src_v = (src_v - conf_.shift) / conf_.scale;
             }
+            ::sycl::ext::oneapi::experimental::printf("before src_v: %f\n", src_v);
+            src_v = (float)(math::relu_fwd((float)src_v, 0.9));
+            ::sycl::ext::oneapi::experimental::printf("after src_v: %f\n", src_v);
             auto dst_offset = dst_data_offset(t, n, dir * conf_.dhc + c);
-            store_float_value(dst_md().data_type(), src_v, src, dst_offset);
+            ::sycl::ext::oneapi::experimental::printf("before: dst: %f\n", ((float *) (dst))[dst_offset]);
+            store_float_value(dst_md().data_type(), src_v, dst, dst_offset);
+            ::sycl::ext::oneapi::experimental::printf(
+                    "dst_offset: %lu, t: %lu, n: %lu, c: %lu\n", dst_offset, t, n,
+                    dir * conf_.dhc + c);
+            ::sycl::ext::oneapi::experimental::printf("after: dst: %f\n", ((float *) dst)[dst_offset]);
             dir = 1;
         }
         if (conf_.rl) {
@@ -329,7 +340,7 @@ struct ref_rnn_copy_res_layer_t {
 
     inline dim_t src_data_offset(dim_t d, dim_t t, dim_t n, dim_t c) const {
         return off_ws_state(conf_.n_layer, conf_.n_dir, conf_.n_iter,
-                conf_.batch, conf_.states_ws_ld, -1, d, t, n, c);
+                conf_.batch, conf_.states_ws_ld, conf_.n_layer-1, d, t, n, c);
     }
 
     xpu::sycl::in_memory_arg_t src_;

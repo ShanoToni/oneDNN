@@ -23,6 +23,9 @@
 
 #include <assert.h>
 
+// TODO remove
+#include <iostream>
+
 namespace dnnl {
 namespace impl {
 
@@ -54,7 +57,10 @@ struct memory_storage_t : public c_compatible {
     virtual status_t set_data_handle(void *handle) = 0;
 
     size_t offset() const { return offset_; }
-    void set_offset(size_t offset) { offset_ = offset; }
+    void set_offset(size_t offset) { 
+        offset_ = offset; 
+        std::cout << "================================ memory_storage set_offset() : " << offset_ << "======================================\n";
+        }
 
     virtual size_t base_offset() const { return 0; }
 
@@ -89,13 +95,13 @@ struct memory_storage_t : public c_compatible {
     static memory_storage_t &empty_storage();
 
 protected:
+    size_t offset_ = 0;
     virtual status_t init_allocate(size_t size) = 0;
 
     const memory_storage_t *parent_storage() const { return parent_storage_; }
 
 private:
     engine_t *engine_;
-    size_t offset_ = 0;
 
     const memory_storage_t *parent_storage_;
 

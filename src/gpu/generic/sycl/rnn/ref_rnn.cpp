@@ -776,6 +776,7 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
     VDISPATCH_RNN_SC(init_ocl_conf<aprop>(rnn_conf, this, this->off),
             "init_ocl_conf<>()");
 
+    // IMPORTANT SYCL STUFF
     copy_init_layer_conf_ = sycl_rnn_copy_init_layer_conf_t();
     copy_init_layer_conf_.batch = rnn_conf.mb;
     copy_init_layer_conf_.slc = rnn_conf.slc;
@@ -1013,6 +1014,63 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
         }
     }
 
+
+    // Setup binary for bias
+    if (this->cell_kind() == dnnl_vanilla_rnn){
+        primitive_attr_t binary_attr;
+        auto binary_desc = binary_desc_t();
+        binary_desc.primitive_kind = primitive_kind::binary;
+        binary_desc.alg_kind = alg_kind::binary_add;
+        binary_desc.src_desc[0] = this->bias_md_;
+        binary_desc.src_desc[1] = this->bias_md_;
+        binary_desc.dst_desc = this->bias_md_;
+
+        primitive_desc_iterator_t it(engine, (op_desc_t *)&binary_desc,
+                &binary_attr, nullptr);
+        while (++it != it.end()) {
+            bias_binary_pd_ = *it;
+            if (bias_binary_pd_) { break; }
+        }
+        if (!bias_binary_pd_) return status::unimplemented;
+    }else{
+        return status::unimplemented;
+    }
+
+
+    // Setup eltwise for vanilla activation
+    if (this->cell_kind() == dnnl_vanilla_rnn){
+        primitive_attr_t eltwise_attr;
+        auto eltwise_desc = eltwise_desc_t();
+        CHECK(eltwise_desc_init(&eltwise_desc, prop_kind_t::dnnl_forward,
+                this->activation_kind(), this->dst_md(),
+                this->dst_md(), nullptr, nullptr, 1,
+                0));
+        if (!eltwise_attr.is_initialized()) return status::out_of_memory;
+        primitive_desc_iterator_t it(engine,
+                reinterpret_cast<op_desc_t *>(&eltwise_desc), &eltwise_attr,
+                nullptr);
+        if (!it.is_initialized()) return status::invalid_arguments;
+        vanilla_cell_act_pd_ = *(++it);
+
+        // eltwise_pd_ = *(++it);
+        // eltwise_desc.primitive_kind = primitive_kind::eltwise;
+        // eltwise_desc.alg_kind = this->activation_kind();
+        // eltwise_desc.src_desc = *this->dst_md();
+        // eltwise_desc.dst_desc = *this->dst_md();
+        // eltwise_desc.alpha = 1;
+        // eltwise_desc.beta = 0;
+        
+        // primitive_desc_iterator_t it(engine, (op_desc_t *)&eltwise_desc,
+        //         &eltwise_attr, nullptr);
+        // while (++it != it.end()) {
+        //     vanilla_cell_act_pd_ = *it;
+        //     if (vanilla_cell_act_pd_) { break; }
+        // }
+        if (!vanilla_cell_act_pd_) return status::unimplemented;
+    }else{
+        return status::unimplemented;
+    }
+
     init_scratchpad(rnn_conf.use_workspace ? 0 : workspace_size);
     return status::success;
 }
@@ -1053,6 +1111,7 @@ status_t _ref_rnn_common_t<aprop>::init(impl::engine_t *engine) {
     //     auto kernel_names = pd()->ocl_conf.get_kernel_names();
     //     CHECK(create_kernels(engine, kernels_, kernel_names, pd()->ocl_conf));
 
+    // IMPORTANT SYCL STUFF
     const auto copy_layer_kid
             = ::sycl::get_kernel_id<ref_rnn_copy_init_layer_t>();
     const auto copy_iter_kid
@@ -1130,6 +1189,21 @@ status_t _ref_rnn_common_t<aprop>::init(impl::engine_t *engine) {
 
     if (!gemm_ok) return status::runtime_error;
 
+    std::pair<std::shared_ptr<impl::primitive_t>, cache_state_t>
+                        pair;
+    if(pd()->cell_kind() == dnnl_vanilla_rnn){
+        bool binary_ok = pd()->bias_binary_pd_->create_primitive_nested(pair, engine)
+                            == status::success;
+        bias_binary_ = pair.first;
+        bool activation_ok = pd()->vanilla_cell_act_pd_->create_primitive_nested(pair, engine)
+                            == status::success;
+        vanilla_cell_act_ = pair.first;
+        if(!binary_ok || !activation_ok){
+                return status::unimplemented;
+        }
+    } else{
+        return status::unimplemented;
+    }
     return status::success;
 } // namespace sycl
 
@@ -1292,18 +1366,20 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
     //         CHECK(zero(user_data.diff_wei_layer(), DNNL_ARG_DIFF_WEIGHTS_LAYER));
     //         CHECK(zero(user_data.diff_wei_iter(), DNNL_ARG_DIFF_WEIGHTS_ITER));
     //     }
-
     // Grid Computation for RNN with a cell execution call
+    std::cout << "========================= grid_computation_sig ==========================\n";
     for (dim_t dir = 0; dir < n_dir; dir++) {
         for (dim_t j = 0; j < n_layer; j++) {
             dim_t lay = (aprop == prop_kind::forward) ? j : n_layer - j - 1;
 
+            std::cout << "========================= before grid_iter ==========================\n";
             auto grid_iter = rnn.merge_gemm_iter
                     ? workspace.states_range(lay, n_layer, dir, dir, -1, -1)
                     : sub_buffer_t();
 
             if ((aprop == prop_kind::forward || rnn.recompute_gates)
                     && rnn.merge_gemm_layer && !rnn.cell_fusion.gemm_layer) {
+                std::cout << "========================= before grid_layer ==========================\n";
                 auto grid_layer = (!rnn.copy_src_layer && lay == 0)
                         ? user_data.src_layer(dir, 0, true)
                         : workspace.states_range(
@@ -1313,8 +1389,11 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
                 auto gemm_grid_layer_fwd = (!rnn.copy_src_layer && lay == 0)
                         ? gemm_layer_fwd_src
                         : gemm_layer_fwd;
+                
+                std::cout << "========================= before wei_layer ==========================\n";
 
                 PRINT_VEC(user_data.wei_layer(lay, dir, true).get_storage(), 64);
+                std::cout << "========================= gemm_primitive (forward || recompute_gates) && merge_gemm_layer && !cell_fusion.gemm_layer ==========================\n";
                 CHECK(gemm_primitive(engine, ctx,
                         user_data.wei_layer(lay, dir, true), grid_layer,
                         *scratch.gates(), gemm_grid_layer_fwd));
@@ -1323,7 +1402,7 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
             for (dim_t i = 0; i < n_iter; i += rnn.iter_loop) {
                 dim_t iter = (aprop == prop_kind::forward) ? i : n_iter - i - 1;
                 CHECK((this->*cell_func)(engine, ctx, dir, lay, iter, user_data,
-                        workspace, scratch, diff_bias, scales, tm_scales));
+                        workspace, scratch, diff_bias, scales, tm_scales, bias_binary_, activation_primitives));
             }
 
             if (aprop == prop_kind::backward && rnn.merge_gemm_layer) {
@@ -1755,20 +1834,20 @@ status_t _ref_rnn_common_t<aprop>::copy_res_iter(const exec_ctx_t &ctx,
         const rnn_utils::workspace_t &ws, const float shift, const float scale,
         const bool dequantize) const {
     std::cout << "Enter copy_res_iter\n";
-    nvidia::stream_t *stream
-            = utils::downcast<nvidia::stream_t *>(ctx.stream());
-    PRINT_VEC(ws.states(), 64)
-    auto tmp = ws.states().clone();
-    tmp->set_offset(tmp->offset() + 32 * sizeof(float));
-    std::cout << "offset: " << tmp->offset() << "\n";
-    auto t = tmp.get();
-    PRINT_VEC((*t), 16)
-    // PRINT_VEC(ws.states(), 16)
-    PRINT_VEC(dst_last_iter, 16)
-    stream->copy(*t, dst_last_iter, 16, stream->ctx().get_deps(),
-            stream->ctx().get_deps());
-    PRINT_VEC(dst_last_iter, 16)
-    stream->wait();
+//     nvidia::stream_t *stream
+//             = utils::downcast<nvidia::stream_t *>(ctx.stream());
+//     PRINT_VEC(ws.states(), 64)
+//     auto tmp = ws.states().clone();
+//     tmp->set_offset(tmp->offset() + 32 * sizeof(float));
+//     std::cout << "offset: " << tmp->offset() << "\n";
+//     auto t = tmp.get();
+//     PRINT_VEC((*t), 16)
+//     // PRINT_VEC(ws.states(), 16)
+//     PRINT_VEC(dst_last_iter, 16)
+//     stream->copy(*t, dst_last_iter, 16, stream->ctx().get_deps(),
+//             stream->ctx().get_deps());
+//     PRINT_VEC(dst_last_iter, 16)
+//     stream->wait();
     return status::success;
 }
 //     int32_t unused_ld = 0;
@@ -1945,6 +2024,7 @@ status_t _ref_rnn_common_t<aprop>::execute_(const exec_ctx_t &ctx) const {
         scales_buf = &CTX_GPU_RES_STORAGE(SCALES_);
     }
 
+    PRINT_VEC(user_data.bias(), 16)
     // bias prepare if needed
     if (rnn.copy_bias) {
         CHECK(bias_prepare(ctx, n_layer, n_dir, n_bias, n_gates, dhc,
@@ -1976,9 +2056,10 @@ status_t _ref_rnn_common_t<aprop>::execute_(const exec_ctx_t &ctx) const {
         tm_scales_buf = &CTX_GPU_RES_STORAGE(TM_SCALES_);
     }
 
+    std::vector<std::shared_ptr<impl::primitive_t>> activation_primitives{vanilla_cell_act_};
     // run the execution on the grid
     CHECK((this->*grid_computation)(engine, ctx, user_data, workspace, scratch,
-            diff_bias_native_, scales_buf, tm_scales_buf));
+            diff_bias_native_, scales_buf, tm_scales_buf, bias_binary_, activation_primitives));
 
     // Finally we copy the results to the result buffers
 

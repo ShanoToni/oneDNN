@@ -71,8 +71,8 @@ struct _ref_rnn_common_t : public primitive_t {
     using class_name = _ref_rnn_common_t<aprop>;
 
     typedef elemwise_sig((class_name::*elemwise_f));
-    typedef elemwise_sig_gru((class_name::*elemwise_gru_f));
-    typedef elemwise_sig_gru_lbr((class_name::*elemwise_gru_lbr_f));
+    // typedef elemwise_sig_gru((class_name::*elemwise_gru_f));
+    // typedef elemwise_sig_gru_lbr((class_name::*elemwise_gru_lbr_f));
     typedef cell_execution_sig((class_name::*cell_execution_f));
     typedef grid_execution_sig((class_name::*grid_execution_f));
     typedef gemm_sig((class_name::*gemm_t));
@@ -102,6 +102,8 @@ struct _ref_rnn_common_t : public primitive_t {
         // bool is_xe_hpc = false;
         // int max_eus_per_wg = 0;
 
+        std::shared_ptr<primitive_desc_t> bias_binary_pd_;
+        std::shared_ptr<primitive_desc_t> vanilla_cell_act_pd_;
         std::shared_ptr<primitive_desc_t> gemm_iter_fwd_pd_;
         std::shared_ptr<primitive_desc_t> gemm_iter_fwd_2_pd_;
         std::shared_ptr<primitive_desc_t> gemm_layer_fwd_pd_;
@@ -244,6 +246,8 @@ private:
 
 //     std::vector<compute::kernel_t> kernels_;
 
+    std::shared_ptr<impl::primitive_t> bias_binary_;
+    std::shared_ptr<impl::primitive_t> vanilla_cell_act_;
     // ptrs to GEMM primitives
     std::shared_ptr<impl::primitive_t> gemm_layer_fwd_;
     std::shared_ptr<impl::primitive_t> gemm_layer_fwd_src_;
@@ -274,8 +278,8 @@ private:
     cell_execution_f cell_func = nullptr;
 
     elemwise_f elemwise_common = nullptr;
-    elemwise_gru_f elemwise_gru = nullptr;
-    elemwise_gru_lbr_f elemwise_gru_lbr = nullptr;
+    // elemwise_gru_f elemwise_gru = nullptr;
+    // elemwise_gru_lbr_f elemwise_gru_lbr = nullptr;
 
     kernel_t copy_init_layer_kernel_;
     kernel_t copy_init_iter_kernel_;

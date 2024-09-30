@@ -68,11 +68,13 @@ struct cudnn_gemm_t : public intel::gpu_gemm_t {
             if (!attr()->post_ops_.has_default_values()) {
                 mm_attr.post_ops_ = attr()->post_ops_;
             }
+            mm_attr.scales_= attr()->scales_;
 
             CHECK(mm_attr.set_fpmath_mode(
                     attr()->fpmath_.mode_, attr()->fpmath_.apply_to_int_));
 
             mm_attr.deterministic_ = attr()->deterministic_;
+
 
             primitive_desc_iterator_t it(
                 engine, (op_desc_t *)&mm_desc, &mm_attr, nullptr);

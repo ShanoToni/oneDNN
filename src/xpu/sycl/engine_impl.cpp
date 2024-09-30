@@ -33,11 +33,11 @@ status_t engine_impl_t::create_memory_storage(memory_storage_t **storage,
     // point.
     assert(engine->impl() == this);
 
-    if (flags & memory_flags_t::prefer_device_usm) {
+    // if (flags & memory_flags_t::prefer_device_usm) {
         _storage.reset(new xpu::sycl::usm_memory_storage_t(
                 engine, ::sycl::usm::alloc::device));
-    } else
-        _storage.reset(new xpu::sycl::buffer_memory_storage_t(engine));
+    // } else
+    //     _storage.reset(new xpu::sycl::buffer_memory_storage_t(engine));
 
     if (!_storage) return status::out_of_memory;
 
