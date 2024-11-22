@@ -32,21 +32,6 @@ namespace impl {
 namespace gpu {
 namespace nvidia {
 
-
-#define DUMP_CUDA_TENSOR(dev_ptr, size, datatype) \
-    { \
-        std::vector<datatype> host_ctr(size); \
-        cudaMemcpy(host_ctr.data(), dev_ptr, size * sizeof(datatype), \
-                cudaMemcpyDeviceToHost); \
-        cudaDeviceSynchronize(); \
-        std::cout << #dev_ptr << "\n"; \
-        for (auto i = 0; i < size; i++) { \
-            std::cout << static_cast<datatype>(host_ctr[i]) << ", "; \
-            if ((i + 1) % 32 == 0) std::cout << std::endl; \
-        } \
-        std::cout << "\n\n"; \
-    }
-
 struct cudnn_matmul_exec_base_t {
     virtual status_t execute(const exec_ctx_t &ctx, impl::engine_t *engine,
             const std::shared_ptr<cudnn_matmul_impl_t> matmul_impl_,
@@ -87,19 +72,14 @@ protected:
 
             void *scratch = arg_scratch.get_native_pointer(ih);
             void *bias = arg_bias.get_native_pointer(ih);
-            std::cout << "========================= Getting wei interop pointer ===========================\n";
+
             void *weights = arg_weights.get_native_pointer(ih);
-            std::cout << "========================= Getting src interop pointer ===========================\n";
             void *src = arg_src.get_native_pointer(ih);
-            std::cout << "========================= Getting dst interop pointer ===========================\n";
             void *dst = arg_dst.get_native_pointer(ih);
 
             void *src_scale = arg_src_scale.get_native_pointer(ih);
             void *wei_scale = arg_wei_scale.get_native_pointer(ih);
             void *dst_scale = arg_dst_scale.get_native_pointer(ih);
-
-            DUMP_CUDA_TENSOR(src, 64, float)
-            DUMP_CUDA_TENSOR(weights, 64, float)
 
             matmul_impl_->execute(cublas_handle, cudnn_handle, weights, src,
                     dst, bias, scratch, src_scale, wei_scale, dst_scale);
@@ -370,37 +350,24 @@ struct cudnn_matmul_exec_t : public cudnn_matmul_exec_base_t {
                 = utils::downcast<nvidia::stream_t *>(ctx.stream());
 
         return cuda_stream->interop_task([=, this](::sycl::handler &cgh) {
-            std::cout << "=================== Entering cudnn_matmul_exec_t::execute =========================\n";
-            std::cout << "========================= Getting src memory ===========================\n";
             auto arg_src = CTX_IN_SYCL_MEMORY(DNNL_ARG_SRC);
-            std::cout << "========================= Getting wei memory ===========================\n";
             auto arg_wt = CTX_IN_SYCL_MEMORY(DNNL_ARG_WEIGHTS);
-            std::cout << "========================= Getting dst memory ===========================\n";
             auto arg_dst = CTX_OUT_SYCL_MEMORY(DNNL_ARG_DST);
-
-            std::cout << "========================= Getting bias memory ===========================\n";
             auto arg_bias = xpu::sycl::interop_memory_arg_t<
                     ::sycl::access::mode::read>();
-            std::cout << "========================= Getting scratch memory ===========================\n";
             auto arg_scratch = xpu::sycl::interop_memory_arg_t<
                     ::sycl::access::mode::read_write>();
-
-            std::cout << "========================= Getting src scale memory ===========================\n";
             auto arg_src_scale
                     = CTX_IN_SYCL_MEMORY(DNNL_ARG_ATTR_SCALES | DNNL_ARG_SRC);
-            std::cout << "========================= Getting wei scale memory ===========================\n";
             auto arg_wei_scale = CTX_IN_SYCL_MEMORY(
                     DNNL_ARG_ATTR_SCALES | DNNL_ARG_WEIGHTS);
-            std::cout << "========================= Getting dst scale memory ===========================\n";
             auto arg_dst_scale
                     = CTX_IN_SYCL_MEMORY(DNNL_ARG_ATTR_SCALES | DNNL_ARG_DST);
 
-            std::cout << "========================= Calling interop_task ===========================\n";
             interop_task(matmul_impl_, engine, cgh, cuda_stream, arg_wt,
                     arg_src, arg_dst, /*nullptr*/ arg_bias,
                     /*nullptr*/ arg_scratch, arg_src_scale, arg_wei_scale,
                     arg_dst_scale);
-            std::cout << "=================== Exiting cudnn_matmul_exec_t::execute =========================\n";
         });
     }
 };

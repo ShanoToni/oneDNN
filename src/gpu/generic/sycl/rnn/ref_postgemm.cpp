@@ -15,7 +15,9 @@
 *******************************************************************************/
 
 #include "gpu/generic/sycl/rnn/ref_rnn.hpp"
+#include "gpu/generic/sycl/rnn/rnn_kernels.hpp"
 #include "gpu/intel/utils.hpp"
+#include "gpu/nvidia/stream.hpp"
 
 namespace dnnl {
 namespace impl {
@@ -26,7 +28,19 @@ namespace sycl {
 using namespace dnnl::impl::gpu::intel::gpu_utils;
 using namespace rnn_utils;
 
-#define PRINT_VEC_PTR(data, size) \
+#define PRINT_VEC(data, size) \
+    { \
+        void *raw_data = nullptr; \
+        data.map_data(&raw_data, nullptr, size * sizeof(float)); \
+        for (auto i = 0; i < size; i++) { \
+            std::cout << #data << "[" << i \
+                      << "] = " << static_cast<float *>(raw_data)[i] << "\n"; \
+        } \
+        std::cout << "\n\n"; \
+        data.unmap_data(raw_data, nullptr); \
+    }
+
+#define PRINT_VEC2(data, size) \
     { \
         void *raw_data = nullptr; \
         data->map_data(&raw_data, nullptr, size * sizeof(float)); \
@@ -37,397 +51,107 @@ using namespace rnn_utils;
         std::cout << "\n\n"; \
         data->unmap_data(raw_data, nullptr); \
     }
-
-
+/*
 template <prop_kind_t aprop>
 elemwise_sig((_ref_rnn_common_t<aprop>::rnn_elemwise)) {
     memory_desc_t bias_md = types::zero_md();
-    dims_t dims = {dim_t{1}, dim_t{1}, dim_t{1}, dim_t{16}};
-    memory_desc_init_by_tag(bias_md, 4,
-                            dims, data_type::f32, format_tag::ldgo);
-    memory_t a(ctx.stream()->engine(), &bias_md,
-                user_data.bias(lay, dir).get_ptr()->clone());
+    memory_desc_t in_out_md = types::zero_md();
+    dims_t in_out_dims = {dim_t {1}, dim_t {1}, batch, 16};
+    dims_t bias_dims = {dim_t {1}, dim_t {1}, dim_t {1}, 16};
+
+    nvidia::stream_t *stream
+            = utils::downcast<nvidia::stream_t *>(ctx.stream());
+    printf("\n ========= BEFORE BIAS ==========\n");
+    PRINT_VEC2(scratch_gates.get_ptr(), 16)
+    stream->wait();
+
+    memory_desc_init_by_tag(
+            bias_md, 4, bias_dims, data_type::f32, format_tag::ldgo);
+    memory_desc_init_by_tag(
+            in_out_md, 4, in_out_dims, data_type::f32, format_tag::ldgo);
+    memory_t a(ctx.stream()->engine(), &in_out_md,
+            scratch_gates.get_ptr()->clone());
     memory_t b(ctx.stream()->engine(), &bias_md,
-                scratch_gates.get_ptr()->clone());
-    memory_t c(ctx.stream()->engine(), &bias_md,
-                workspace.states(lay, dir, iter).get_ptr()->clone());
-    
-    PRINT_VEC_PTR(user_data.bias(lay, dir).get_ptr(), 16)
-    PRINT_VEC_PTR(scratch_gates.get_ptr()->clone(), 16)
-    PRINT_VEC_PTR(workspace.states(lay, dir, iter).get_ptr(), 128)
-    
+            user_data.bias(lay, dir).get_ptr()->clone());
+    memory_t c(ctx.stream()->engine(), &in_out_md,
+            workspace.states(lay, dir, iter).get_ptr()->clone());
     exec_args_t bias_args;
     bias_args[DNNL_ARG_SRC_0] = {&a, true};
     bias_args[DNNL_ARG_SRC_1] = {&b, true};
     bias_args[DNNL_ARG_DST] = {&c, false};
     exec_ctx_t bias_ctx(ctx, std::move(bias_args));
-    // auto bias_exec_ctx = ctx.into_exec_ctx_t(std::move(bias_args));
+
     auto status = bias_primitive->execute(bias_ctx);
-    ctx.stream()->wait();
-    PRINT_VEC_PTR(workspace.states(lay, dir, iter).get_ptr(), 128)
+
+    printf("\n ========= AFTER BIAS ==========\n");
+    stream->wait();
+    PRINT_VEC2(scratch_gates.get_ptr(), 2 * 16)
+    PRINT_VEC2(user_data.bias(lay, dir).get_ptr(), 2 * 16)
 
     return status;
-    // auto nd_range = get_nd_range({dhc,
-    //         utils::div_up(
-    //                 batch, aprop == prop_kind::forward ? 1 : bwd_batch_block)});
-
-    // const compute::kernel_t &kernel = (aprop == prop_kind::forward)
-    //         ? kernels_[kernel_id::elemwise_fwd]
-    //         : kernels_[kernel_id::elemwise_bwd];
-
-    // arg_list_t arg_list;
-    // if (aprop == prop_kind::backward) {
-    //     arg_list.append(into<int32_t>(dir));
-    //     arg_list.append(into<int32_t>(lay));
-    //     arg_list.append(into<int32_t>(iter));
-    // }
-    // if (aprop == prop_kind::forward) {
-    //     arg_list.append(scratch_gates, pd()->ocl_conf.acc_dt);
-    // } else {
-    //     arg_list.append(scratch_diff_gates, pd()->ocl_conf.src_dt);
-    //     arg_list.append(scratch_gates ? scratch_gates : scratch_diff_gates,
-    //             pd()->ocl_conf.acc_dt);
-    // }
-    // auto bias = user_data.bias(lay, dir);
-    // arg_list.append(bias, pd()->ocl_conf.bia_dt);
-    // arg_list.append(pd()->desc()->alpha);
-    // // for test mode
-    // arg_list.append(tm_scales ? *tm_scales : memory_storage_t::empty_storage());
-
-    // data_type_t ws_dt = pd()->ocl_conf.src_dt;
-    // auto states_t_l = workspace.states(lay, dir, iter);
-    // arg_list.append(states_t_l, ws_dt);
-
-    // auto c_states_t_l = workspace.c_states(lay, dir, iter);
-    // auto c_states_tm1_l = workspace.c_states(lay, dir, iter - 1);
-    // arg_list.append(c_states_t_l, pd()->ocl_conf.aux_dt);
-    // arg_list.append(c_states_tm1_l, pd()->ocl_conf.aux_dt);
-
-    // auto gates = workspace.gates(lay, dir, iter);
-    // arg_list.append(gates, pd()->ocl_conf.aux_dt);
-
-    // auto ws_grid = workspace.grid_comp(lay, dir, iter);
-    // arg_list.append(ws_grid, pd()->ocl_conf.aux_dt);
-
-    // arg_list.append(into<int32_t>(pd()->rnn_conf.states_ws_ld));
-    // arg_list.append(into<int32_t>(pd()->rnn_conf.gates_ws_ld));
-    // if (aprop == prop_kind::forward)
-    //     arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_gates_ld));
-    // else {
-    //     arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_diff_gates_ld));
-    //     arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_gates_ld));
-    // }
-
-    // arg_list.append(into<int32_t>(batch));
-    // arg_list.append(into<int32_t>(dhc));
-    // if (aprop == dnnl_backward) {
-    //     arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_diff_states_ld));
-    //     arg_list.append(into<int32_t>(diff_states_layer_ld));
-    // }
-
-    // arg_list.append(pd()->rnn_conf.tm_cscale);
-    // if (aprop != dnnl_forward) {
-    //     auto diff_dt = pd()->ocl_conf.diff_dt;
-    //     arg_list.append(scratch_diff_states, diff_dt);
-    //     arg_list.append(scratch_diff_states_iter, diff_dt);
-    //     arg_list.append(scratch_diff_states_layer, diff_dt);
-    //     arg_list.append(diff_bias);
-    //     arg_list.append(pd()->off.diff_bias);
-    // }
-    // return parallel_for(ctx, nd_range, kernel, arg_list.args);
 }
+*/
+/*
+template <prop_kind_t aprop>
+bias_sig((_ref_rnn_common_t<aprop>::rnn_bias)) {
+    nvidia::stream_t *stream
+            = utils::downcast<nvidia::stream_t *>(ctx.stream());
+    parallel_for(ctx, bias_kernel_, [&](::sycl::handler &cgh) {
+        auto src_mem_arg
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        ws.gates(lay, dir, iter).get())
+                          ->get_in_memory_arg(ctx.stream(), cgh);
+        auto bias_mem_arg
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        user_data.bias(lay, dir).get())
+                          ->get_in_memory_arg(ctx.stream(), cgh);
+        auto dst_mem_arg
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        ws.states(lay, dir, iter).get())
+                          ->get_out_memory_arg(ctx.stream(), cgh);
+        ref_rnn_bias bias_kernel(pd()->sycl_rnn_bias_conf_t_, src_mem_arg,
+                bias_mem_arg, dst_mem_arg);
+
+        size_t local_batch = 4;
+        size_t local_channel = 4;
+        size_t global_batch = calc_global_range(static_cast<size_t>(batch));
+        size_t global_channels = calc_global_range(static_cast<size_t>(dhc));
+        cgh.parallel_for(
+                ::sycl::nd_range<3>(
+                        ::sycl::range<3>(1, global_batch, global_channels),
+                        ::sycl::range<3>(1, local_batch, local_channel)),
+                bias_kernel);
+    });
+
+    return status::success;
+}
+*/
+
+/*
 template elemwise_sig(ref_rnn_fwd_t::rnn_elemwise);
-template elemwise_sig(ref_rnn_bwd_t::rnn_elemwise);
+*/
+//template bias_sig(ref_rnn_fwd_t::rnn_bias);
+//template elemwise_sig(ref_rnn_bwd_t::rnn_elemwise);
 
-template <prop_kind_t aprop>
-elemwise_sig((_ref_rnn_common_t<aprop>::lstm_elemwise)) {
-    return status::success;
-    // auto nd_range = get_nd_range({dhc,
-    //         utils::div_up(
-    //                 batch, aprop == prop_kind::forward ? 1 : bwd_batch_block)});
+//template <prop_kind_t aprop>
+//elemwise_sig((_ref_rnn_common_t<aprop>::lstm_elemwise)) {
+//    return status::success;
+//}
 
-    // const compute::kernel_t &kernel = (aprop == prop_kind::forward)
-    //         ? kernels_[kernel_id::elemwise_fwd]
-    //         : kernels_[kernel_id::elemwise_bwd];
+//template elemwise_sig(ref_rnn_fwd_t::lstm_elemwise);
+//template elemwise_sig(ref_rnn_bwd_t::lstm_elemwise);
 
-    // arg_list_t arg_list;
-    // if (aprop == prop_kind::backward) {
-    //     arg_list.append(into<int32_t>(dir));
-    //     arg_list.append(into<int32_t>(lay));
-    //     arg_list.append(into<int32_t>(iter));
-    // }
-    // if (aprop == prop_kind::forward) {
-    //     arg_list.append(scratch_gates, pd()->ocl_conf.acc_dt);
-    // } else {
-    //     arg_list.append(scratch_diff_gates, pd()->ocl_conf.src_dt);
-    //     arg_list.append(scratch_gates ? scratch_gates : scratch_diff_gates,
-    //             pd()->ocl_conf.acc_dt);
-    // }
-    // auto bias = user_data.bias(lay, dir);
-    // arg_list.append(bias, pd()->ocl_conf.bia_dt);
-    // arg_list.append(pd()->desc()->alpha);
-    // // for test mode
-    // arg_list.append(tm_scales ? *tm_scales : memory_storage_t::empty_storage());
+//template <prop_kind_t aprop>
+//elemwise_sig((_ref_rnn_common_t<aprop>::lstm_elemwise_u8s8)) {
+//    return status::success;
+//}
 
-    // data_type_t ws_dt = pd()->ocl_conf.src_dt;
-    // auto states_t_l = workspace.states(lay, dir, iter);
-    // arg_list.append(states_t_l, ws_dt);
+//template elemwise_sig(ref_rnn_fwd_t::lstm_elemwise_u8s8);
+//template elemwise_sig(ref_rnn_bwd_t::lstm_elemwise_u8s8);
 
-    // auto c_states_t_l = workspace.c_states(lay, dir, iter);
-    // auto c_states_tm1_l = workspace.c_states(lay, dir, iter - 1);
-    // arg_list.append(c_states_t_l, pd()->ocl_conf.aux_dt);
-    // arg_list.append(c_states_tm1_l, pd()->ocl_conf.aux_dt);
-
-    // auto gates = workspace.gates(lay, dir, iter);
-    // arg_list.append(gates, pd()->ocl_conf.aux_dt);
-
-    // auto ws_grid = workspace.grid_comp(lay, dir, iter);
-    // arg_list.append(ws_grid, pd()->ocl_conf.aux_dt);
-
-    // arg_list.append(into<int32_t>(pd()->rnn_conf.states_ws_ld));
-    // arg_list.append(into<int32_t>(pd()->rnn_conf.gates_ws_ld));
-    // if (aprop == prop_kind::forward) {
-    //     arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_gates_ld));
-    // } else {
-    //     arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_diff_gates_ld));
-    //     arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_gates_ld));
-    // }
-    // arg_list.append(into<int32_t>(batch));
-    // arg_list.append(into<int32_t>(dhc));
-    // if (aprop == dnnl_backward) {
-    //     arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_diff_states_ld));
-    //     arg_list.append(into<int32_t>(diff_states_layer_ld));
-    // }
-
-    // arg_list.append(pd()->rnn_conf.tm_cscale);
-    // if (aprop != dnnl_forward) {
-    //     auto diff_dt = pd()->ocl_conf.diff_dt;
-    //     arg_list.append(scratch_diff_states, diff_dt);
-    //     arg_list.append(scratch_diff_states_iter, diff_dt);
-    //     arg_list.append(scratch_diff_states_layer, diff_dt);
-    //     arg_list.append(scratch_diff_states_s1, diff_dt);
-    //     arg_list.append(scratch_diff_states_iter_s1, diff_dt);
-    //     arg_list.append(diff_bias);
-    //     arg_list.append(pd()->off.diff_bias);
-    // }
-    // return parallel_for(ctx, nd_range, kernel, arg_list.args);
-}
-template elemwise_sig(ref_rnn_fwd_t::lstm_elemwise);
-template elemwise_sig(ref_rnn_bwd_t::lstm_elemwise);
-
-template <prop_kind_t aprop>
-elemwise_sig((_ref_rnn_common_t<aprop>::lstm_elemwise_u8s8)) {
-
-    return status::success;
-    // auto nd_range = get_nd_range({dhc,
-    //         utils::div_up(
-    //                 batch, aprop == prop_kind::forward ? 1 : bwd_batch_block)});
-
-    // float data_shift = pd()->attr()->rnn_data_qparams_.shift_;
-    // float data_scale = pd()->attr()->rnn_data_qparams_.scale_;
-
-    // arg_list_t arg_list;
-    // arg_list.append(into<int32_t>(dir));
-    // arg_list.append(into<int32_t>(lay));
-    // arg_list.append(into<int32_t>(iter));
-    // if (aprop == prop_kind::forward) {
-    //     arg_list.append(scratch_gates, pd()->ocl_conf.acc_dt);
-    // } else {
-    //     arg_list.append(scratch_diff_gates, pd()->ocl_conf.src_dt);
-    //     arg_list.append(scratch_gates ? scratch_gates : scratch_diff_gates,
-    //             pd()->ocl_conf.acc_dt);
-    // }
-    // arg_list.append(scales ? *scales : memory_storage_t::empty_storage());
-    // arg_list.append(pd()->desc()->alpha);
-    // arg_list.append(data_shift);
-    // arg_list.append(data_scale);
-    // // for test mode
-    // arg_list.append(tm_scales ? *tm_scales : memory_storage_t::empty_storage());
-
-    // data_type_t ws_dt = pd()->ocl_conf.src_dt;
-    // auto states_t1_l = workspace.states(lay, dir, iter);
-    // arg_list.append(states_t1_l, ws_dt);
-
-    // auto c_states_t_l = workspace.c_states(lay, dir, iter);
-    // auto c_states_tm1_l = workspace.c_states(lay, dir, iter - 1);
-    // arg_list.append(c_states_t_l, data_type::f32);
-    // arg_list.append(c_states_tm1_l, data_type::f32);
-
-    // auto gates = workspace.gates(lay, dir, iter);
-    // arg_list.append(gates, pd()->ocl_conf.aux_dt);
-
-    // arg_list.append(workspace.bias());
-
-    // arg_list.append(into<int32_t>(pd()->rnn_conf.states_ws_ld));
-    // if (aprop == prop_kind::forward) {
-    //     arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_gates_ld));
-    // } else {
-    //     arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_diff_gates_ld));
-    //     arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_gates_ld));
-    // }
-    // arg_list.append(into<int32_t>(batch));
-    // arg_list.append(into<int32_t>(dhc));
-    // arg_list.append(into<int32_t>(pd()->rnn_conf.n_layer));
-    // arg_list.append(into<int32_t>(pd()->rnn_conf.n_dir));
-    // arg_list.append(pd()->rnn_conf.tm_cscale);
-    // return parallel_for(
-    //         ctx, nd_range, kernels_[kernel_id::elemwise_fwd], arg_list.args);
-}
-template elemwise_sig(ref_rnn_fwd_t::lstm_elemwise_u8s8);
-template elemwise_sig(ref_rnn_bwd_t::lstm_elemwise_u8s8);
-
-// template <prop_kind_t aprop>
-// elemwise_sig_gru_lbr((_ref_rnn_common_t<aprop>::gru_lbr_elemwise)) {
-//     auto nd_range = get_nd_range({dhc,
-//             utils::div_up(
-//                     batch, aprop == prop_kind::forward ? 1 : bwd_batch_block)});
-
-//     const compute::kernel_t &kernel = (aprop == prop_kind::forward)
-//             ? kernels_[kernel_id::elemwise_fwd]
-//             : kernels_[kernel_id::elemwise_bwd];
-
-//     arg_list_t arg_list;
-//     if (aprop == prop_kind::backward) {
-//         arg_list.append(into<int32_t>(dir));
-//         arg_list.append(into<int32_t>(lay));
-//         arg_list.append(into<int32_t>(iter));
-//     }
-//     if (aprop == prop_kind::forward) {
-//         arg_list.append(scratch_gates, pd()->ocl_conf.acc_dt);
-//     } else {
-//         arg_list.append(scratch_diff_gates, pd()->ocl_conf.src_dt);
-//         arg_list.append(scratch_gates ? scratch_gates : scratch_diff_gates,
-//                 pd()->ocl_conf.acc_dt);
-//     }
-//     auto bias = user_data.bias(lay, dir);
-//     arg_list.append(bias, pd()->ocl_conf.bia_dt);
-//     arg_list.append(pd()->desc()->alpha);
-//     // for test mode
-//     arg_list.append(tm_scales ? *tm_scales : memory_storage_t::empty_storage());
-
-//     data_type_t ws_dt = pd()->ocl_conf.src_dt;
-//     auto states_t1_l = workspace.states(lay, dir, iter);
-//     auto states_tm1_l = workspace.states(lay, dir, iter - 1);
-//     arg_list.append(
-//             aprop == prop_kind::forward ? states_t1_l : states_tm1_l, ws_dt);
-
-//     auto c_states_t_l = workspace.c_states(lay, dir, iter);
-//     auto c_states_tm1_l = workspace.c_states(lay, dir, iter - 1);
-//     arg_list.append(c_states_t_l, pd()->ocl_conf.aux_dt);
-//     arg_list.append(c_states_tm1_l, pd()->ocl_conf.aux_dt);
-
-//     auto gates = workspace.gates(lay, dir, iter);
-//     arg_list.append(gates, pd()->ocl_conf.aux_dt);
-
-//     auto ws_grid = workspace.grid_comp(lay, dir, iter);
-//     arg_list.append(ws_grid, pd()->ocl_conf.aux_dt);
-
-//     arg_list.append(into<int32_t>(pd()->rnn_conf.states_ws_ld));
-//     arg_list.append(into<int32_t>(pd()->rnn_conf.gates_ws_ld));
-//     if (aprop == prop_kind::forward) {
-//         arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_gates_ld));
-//     } else {
-//         arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_diff_gates_ld));
-//         arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_gates_ld));
-//     }
-//     arg_list.append(into<int32_t>(batch));
-//     arg_list.append(into<int32_t>(dhc));
-//     if (aprop == dnnl_backward) {
-//         arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_diff_states_ld));
-//         arg_list.append(into<int32_t>(diff_states_layer_ld));
-//     }
-
-//     if (aprop == dnnl_forward) { arg_list.append(states_tm1_l, ws_dt); }
-//     arg_list.append(scratch_cell);
-//     if (aprop != dnnl_forward) {
-//         auto diff_dt = pd()->ocl_conf.diff_dt;
-//         arg_list.append(scratch_diff_states, diff_dt);
-//         arg_list.append(scratch_diff_states_iter, diff_dt);
-//         arg_list.append(scratch_diff_states_layer, diff_dt);
-//         arg_list.append(diff_bias);
-//         arg_list.append(pd()->off.diff_bias);
-//     }
-//     return parallel_for(ctx, nd_range, kernel, arg_list.args);
-// }
-// template elemwise_sig_gru_lbr(ref_rnn_fwd_t::gru_lbr_elemwise);
-// template elemwise_sig_gru_lbr(ref_rnn_bwd_t::gru_lbr_elemwise);
-
-// template <prop_kind_t aprop>
-// elemwise_sig_gru((_ref_rnn_common_t<aprop>::gru_elemwise)) {
-//     auto nd_range = get_nd_range({dhc,
-//             utils::div_up(
-//                     batch, aprop == prop_kind::forward ? 1 : bwd_batch_block)});
-
-//     const compute::kernel_t &kernel = (aprop == prop_kind::forward)
-//             ? kernels_[kernel_id::elemwise_fwd]
-//             : kernels_[kernel_id::elemwise_bwd];
-
-//     arg_list_t arg_list;
-//     if (aprop == prop_kind::backward) {
-//         arg_list.append(into<int32_t>(dir));
-//         arg_list.append(into<int32_t>(lay));
-//         arg_list.append(into<int32_t>(iter));
-//     }
-//     if (aprop == prop_kind::forward) {
-//         arg_list.append(scratch_gates, pd()->ocl_conf.acc_dt);
-//     } else {
-//         arg_list.append(scratch_diff_gates, pd()->ocl_conf.src_dt);
-//         arg_list.append(scratch_gates ? scratch_gates : scratch_diff_gates,
-//                 pd()->ocl_conf.acc_dt);
-//     }
-//     auto bias = user_data.bias(lay, dir);
-//     arg_list.append(bias, pd()->ocl_conf.bia_dt);
-//     arg_list.append(pd()->desc()->alpha);
-//     arg_list.append(tm_scales ? *tm_scales : memory_storage_t::empty_storage());
-
-//     data_type_t ws_dt = pd()->ocl_conf.src_dt;
-//     auto states_t1_l = workspace.states(lay, dir, iter);
-//     auto states_tm1_l = workspace.states(lay, dir, iter - 1);
-//     arg_list.append(
-//             aprop == prop_kind::forward ? states_t1_l : states_tm1_l, ws_dt);
-
-//     auto c_states_t_l = workspace.c_states(lay, dir, iter);
-//     auto c_states_tm1_l = workspace.c_states(lay, dir, iter - 1);
-//     arg_list.append(c_states_t_l, pd()->ocl_conf.aux_dt);
-//     arg_list.append(c_states_tm1_l, pd()->ocl_conf.aux_dt);
-
-//     auto gates = workspace.gates(lay, dir, iter);
-//     arg_list.append(gates, pd()->ocl_conf.aux_dt);
-
-//     auto ws_grid = workspace.grid_comp(lay, dir, iter);
-//     arg_list.append(ws_grid, pd()->ocl_conf.aux_dt);
-
-//     arg_list.append(into<int32_t>(pd()->rnn_conf.states_ws_ld));
-//     arg_list.append(into<int32_t>(pd()->rnn_conf.gates_ws_ld));
-//     if (aprop == prop_kind::forward) {
-//         arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_gates_ld));
-//     } else {
-//         arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_diff_gates_ld));
-//         arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_gates_ld));
-//     }
-//     arg_list.append(into<int32_t>(batch));
-//     arg_list.append(into<int32_t>(dhc));
-//     if (aprop == dnnl_backward) {
-//         arg_list.append(into<int32_t>(pd()->rnn_conf.scratch_diff_states_ld));
-//         arg_list.append(into<int32_t>(diff_states_layer_ld));
-//     }
-
-//     if (aprop == dnnl_forward) { arg_list.append(states_tm1_l, ws_dt); }
-//     arg_list.append(part);
-//     if (aprop != dnnl_forward) {
-//         auto diff_dt = pd()->ocl_conf.diff_dt;
-//         arg_list.append(scratch_cell);
-//         arg_list.append(scratch_dhG1, diff_dt);
-//         arg_list.append(scratch_diff_states, diff_dt);
-//         arg_list.append(scratch_diff_states_iter, diff_dt);
-//         arg_list.append(scratch_diff_states_layer, diff_dt);
-//         arg_list.append(diff_bias);
-//         arg_list.append(pd()->off.diff_bias);
-//     }
-//     return parallel_for(ctx, nd_range, kernel, arg_list.args);
-// }
 // template elemwise_sig_gru(ref_rnn_fwd_t::gru_elemwise);
 // template elemwise_sig_gru(ref_rnn_bwd_t::gru_elemwise);
+//
 } // namespace sycl
 } // namespace generic
 } // namespace gpu

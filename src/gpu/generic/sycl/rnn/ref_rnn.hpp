@@ -23,11 +23,11 @@
 #include "common/primitive.hpp"
 #include "common/primitive_desc_iterator.hpp"
 #include "common/utils.hpp"
-#include "gpu/gpu_rnn_pd.hpp"
 #include "gpu/generic/sycl/sycl_gpu_primitive.hpp"
+#include "gpu/gpu_rnn_pd.hpp"
 // #include "gpu/intel/gpu_resource.hpp"
-#include "gpu/intel/ocl/ocl_utils.hpp"
 #include "gpu/generic/sycl/rnn/rnn_utils.hpp"
+#include "gpu/intel/ocl/ocl_utils.hpp"
 #include "gpu/intel/primitive_conf.hpp"
 
 #include "gpu/intel/gemm/gpu_gemm.hpp"
@@ -38,7 +38,6 @@
 #include "xpu/sycl/types.hpp"
 
 #include "gpu/generic/sycl/sycl_gpu_kernel.hpp"
-
 
 // TODO just to debug
 #define WS_NAN_FILLING 0
@@ -70,9 +69,8 @@ struct _ref_rnn_common_t : public primitive_t {
 
     using class_name = _ref_rnn_common_t<aprop>;
 
-    typedef elemwise_sig((class_name::*elemwise_f));
-    // typedef elemwise_sig_gru((class_name::*elemwise_gru_f));
-    // typedef elemwise_sig_gru_lbr((class_name::*elemwise_gru_lbr_f));
+    //typedef elemwise_sig((class_name::*elemwise_f));
+    typedef bias_sig((class_name::*bias_f));
     typedef cell_execution_sig((class_name::*cell_execution_f));
     typedef grid_execution_sig((class_name::*grid_execution_f));
     typedef gemm_sig((class_name::*gemm_t));
@@ -115,17 +113,19 @@ struct _ref_rnn_common_t : public primitive_t {
         std::shared_ptr<primitive_desc_t> gemm_diff_wei_layer_src_pd_;
         std::shared_ptr<primitive_desc_t> gemm_diff_wei_iter_pd_;
         std::shared_ptr<primitive_desc_t> gemm_diff_wei_iter_2_pd_;
-    
+
         sycl_rnn_copy_init_layer_conf_t copy_init_layer_conf_;
         sycl_rnn_copy_init_iter_conf_t copy_init_iter_conf_;
         sycl_rnn_copy_res_layer_conf_t copy_res_layer_conf_;
+        sycl_rnn_copy_res_iter_conf_t copy_res_iter_conf_;
+        sycl_rnn_bias_conf_t sycl_rnn_bias_conf_t_;
 
     private:
         void init_scratchpad(dim_t workspace_size) {
             using namespace memory_tracking::names;
             auto scratchpad = this->scratchpad_registry().registrar();
             scratchpad.book(key_rnn_space, workspace_size, 1);
-                //     OCL_BUFFER_ALIGNMENT, 4096);
+            //     OCL_BUFFER_ALIGNMENT, 4096);
             rnn_utils::scratch_t::book(scratchpad, rnn_conf,
                     {
                             gemm_iter_fwd_pd_.get(),
@@ -141,7 +141,7 @@ struct _ref_rnn_common_t : public primitive_t {
                             gemm_diff_wei_iter_2_pd_.get(),
                     });
         }
-    }; // struct pd_t : public base_pd_t
+    };
 
     status_t init(impl::engine_t *engine) override;
 
@@ -149,70 +149,39 @@ struct _ref_rnn_common_t : public primitive_t {
         return execute_(ctx);
     }
 
-// protected:
-//     status_t init_res_storage(
-//             engine_t *engine, gpu_resource_t *r) const override;
-
 private:
     status_t execute_(const exec_ctx_t &ctx) const;
     const pd_t *pd() const { return (const pd_t *)primitive_t::pd().get(); }
-    // TODO
-    // intel::compute::nd_range_t get_nd_range(std::vector<dim_t> gws) const {
-//         // Try to schedule one local thread per eu
-//         int subgroup_size = pd()->ocl_conf.subgroup_size;
-//         int lws_max = pd()->max_eus_per_wg * subgroup_size;
-//         std::vector<dim_t> lws;
-//         lws.reserve(gws.size());
-//         for (size_t i = 0; i < gws.size(); i++) {
-//             int l_dim = 2 * gws[i] <= lws_max ? utils::rnd_up_pow2(gws[i])
-//                                               : lws_max;
-//             if (i == 0 && l_dim < subgroup_size) l_dim = subgroup_size;
-//             lws.emplace_back(l_dim);
-//             gws[i] = utils::rnd_up(gws[i], l_dim);
-//             lws_max = lws_max / l_dim;
-//         }
-
-//         return compute::nd_range_t(gws, {lws});
-    // }
 
     // set the class names
     grid_execution_sig(linear_execution);
 
     cell_execution_sig(cell_execution);
-    // cell_execution_sig(cell_execution_gru);
-    // cell_execution_sig(cell_execution_gru_lbr);
 
-    elemwise_sig(rnn_elemwise);
-    elemwise_sig(lstm_elemwise);
-    elemwise_sig(lstm_elemwise_u8s8);
-    // elemwise_sig_gru(gru_elemwise);
-    // elemwise_sig_gru_lbr(gru_lbr_elemwise);
+    //elemwise_sig(rnn_elemwise);
+    //bias_sig(rnn_bias);
+    //elemwise_sig(lstm_elemwise);
+    //elemwise_sig(lstm_elemwise_u8s8);
 
     gemm_sig(gemm_primitive);
 
     float (*activation_func)(float dd, float s, float alpha, float cliping)
             = nullptr;
-    status_t bias_prepare(const exec_ctx_t &ctx,
-        //     compute::compute_stream_t *compute_stream,
-            dim_t n_layer,
-            dim_t n_dir, dim_t n_bias, dim_t n_gates, dim_t dhc,
+    status_t bias_prepare(const exec_ctx_t &ctx, dim_t n_layer, dim_t n_dir,
+            dim_t n_bias, dim_t n_gates, dim_t dhc,
             const memory_storage_t &ws_bias, const memory_storage_t &scales,
             const memory_storage_t &wei_layer, const memory_storage_t &wei_iter,
             const memory_storage_t &bias) const;
-    status_t copy_init_layer(const exec_ctx_t &ctx,
-        //     compute::compute_stream_t *compute_stream,
-            bool lr, bool rl,
+    status_t copy_init_layer(const exec_ctx_t &ctx, bool lr, bool rl,
             dim_t n_iter, dim_t batch, dim_t slc, dim_t dhc, dim_t n_layer,
             dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
             dim_t scratch_diff_states_ld, const memory_storage_t &ws_states,
             const memory_storage_t *scratch_diff_states,
             const memory_storage_t &input,
             const memory_storage_t &diff_dst_layer) const;
-    status_t copy_init_iter(const exec_ctx_t &ctx,
-        //     compute::compute_stream_t *compute_stream,
-            dim_t n_layer,
-            dim_t n_dir, dim_t batch, dim_t sic, dim_t dhc, dim_t n_iter,
-            dim_t n_states, dim_t states_ws_ld, dim_t scratch_diff_states_ld,
+    status_t copy_init_iter(const exec_ctx_t &ctx, dim_t n_layer, dim_t n_dir,
+            dim_t batch, dim_t sic, dim_t dhc, dim_t n_iter, dim_t n_states,
+            dim_t states_ws_ld, dim_t scratch_diff_states_ld,
             const rnn_utils::workspace_t &ws,
             const memory_storage_t *scratch_diff_states,
             const memory_storage_t &firstit_states,
@@ -220,22 +189,18 @@ private:
             const memory_storage_t &diff_dst_iter,
             const memory_storage_t &diff_dst_iter_c, const float shift,
             const float scale, const bool quantize) const;
-    status_t copy_res_layer(const exec_ctx_t &ctx,
-        //     compute::compute_stream_t *compute_stream,
-            bool lr, bool rl,
+    status_t copy_res_layer(const exec_ctx_t &ctx, bool lr, bool rl,
             dim_t n_iter, dim_t batch, dim_t slc, dim_t dhc, dim_t n_layer,
             dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
             dim_t scratch_diff_states_ld,
             const memory_storage_t *scratch_diff_states,
             const memory_storage_t &dst_last_layer,
             const memory_storage_t &diff_src_layer,
-            const memory_storage_t &ws_states, const float shift,
+            const rnn_utils::workspace_t &ws, const float shift,
             const float scale, const bool dequantize) const;
-    status_t copy_res_iter(const exec_ctx_t &ctx,
-        //     compute::compute_stream_t *compute_stream,
-            dim_t n_layer,
-            dim_t n_dir, dim_t batch, dim_t sic, dim_t dhc, dim_t n_iter,
-            dim_t n_states, dim_t states_ws_ld, dim_t scratch_diff_states_ld,
+    status_t copy_res_iter(const exec_ctx_t &ctx, dim_t n_layer, dim_t n_dir,
+            dim_t batch, dim_t sic, dim_t dhc, dim_t n_iter, dim_t n_states,
+            dim_t states_ws_ld, dim_t scratch_diff_states_ld,
             const memory_storage_t *scratch_diff_states,
             const memory_storage_t &dst_last_iter,
             const memory_storage_t &dst_last_iter_c,
@@ -243,8 +208,10 @@ private:
             const memory_storage_t &diff_src_iter_c,
             const rnn_utils::workspace_t &ws, const float shift,
             const float scale, const bool dequantize) const;
-
-//     std::vector<compute::kernel_t> kernels_;
+    status_t rnn_bias(const exec_ctx_t &ctx, dim_t batch, dim_t dhc, dim_t iter,
+            dim_t lay, dim_t dir, const rnn_utils::workspace_t &ws,
+            const rnn_utils::scratch_t &scratch,
+            const rnn_utils ::user_data_t &user_data) const;
 
     std::shared_ptr<impl::primitive_t> bias_binary_;
     std::shared_ptr<impl::primitive_t> vanilla_cell_act_;
@@ -277,20 +244,20 @@ private:
     grid_execution_f grid_computation = nullptr;
     cell_execution_f cell_func = nullptr;
 
-    elemwise_f elemwise_common = nullptr;
-    // elemwise_gru_f elemwise_gru = nullptr;
-    // elemwise_gru_lbr_f elemwise_gru_lbr = nullptr;
+    bias_f bias_common = nullptr;
 
     kernel_t copy_init_layer_kernel_;
     kernel_t copy_init_iter_kernel_;
     kernel_t copy_res_layer_kernel_;
+    kernel_t copy_res_iter_kernel_;
+    kernel_t bias_kernel_;
 
     enum { SCALES_ = 0, TM_SCALES_ = 1 };
 };
 using ref_rnn_fwd_t = _ref_rnn_common_t<prop_kind::forward>;
 using ref_rnn_bwd_t = _ref_rnn_common_t<prop_kind::backward>;
 } // namespace sycl
-} // generic
+} // namespace generic
 } // namespace gpu
 } // namespace impl
 } // namespace dnnl

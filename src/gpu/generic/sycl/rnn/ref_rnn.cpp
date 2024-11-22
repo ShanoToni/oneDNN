@@ -38,7 +38,7 @@
 #include "common/type_helpers.hpp"
 #include "gpu/gpu_primitive.hpp"
 #include "gpu/intel/gemm/gpu_gemm.hpp"
-// #include "gpu/intel/gpu_primitive_attr.hpp"
+
 #include <iostream>
 #include <memory>
 #include "gpu/generic/sycl/rnn/rnn_kernels.hpp"
@@ -60,6 +60,30 @@ namespace impl {
 namespace gpu {
 namespace generic {
 namespace sycl {
+
+#define PRINT_VEC(data, size) \
+    { \
+        void *raw_data = nullptr; \
+        data.map_data(&raw_data, nullptr, size * sizeof(float)); \
+        for (auto i = 0; i < size; i++) { \
+            std::cout << #data << "[" << i \
+                      << "] = " << static_cast<float *>(raw_data)[i] << "\n"; \
+        } \
+        std::cout << "\n\n"; \
+        data.unmap_data(raw_data, nullptr); \
+    }
+
+#define PRINT_VEC2(data, size) \
+    { \
+        void *raw_data = nullptr; \
+        data->map_data(&raw_data, nullptr, size * sizeof(float)); \
+        for (auto i = 0; i < size; i++) { \
+            std::cout << #data << "[" << i \
+                      << "] = " << static_cast<float *>(raw_data)[i] << "\n"; \
+        } \
+        std::cout << "\n\n"; \
+        data->unmap_data(raw_data, nullptr); \
+    }
 
 using namespace dnnl::impl::utils;
 using namespace dnnl::impl::gpu::intel::gpu_utils;
@@ -137,343 +161,59 @@ static status_t init_ocl_conf(const rnn_pd_t *rnn_pd,
     }
 
     off.src_layer = gpu::intel::get_outer_strides(src_layer_d);
-    //     ocl_conf.inner_layouts.src_layer
-    //             = gpu::intel::get_inner_layout(src_layer_d);
+
     off.src_iter = gpu::intel::get_outer_strides(src_iter_d);
-    //     ocl_conf.inner_layouts.src_iter = gpu::intel::get_inner_layout(src_iter_d);
+
     if (with_src_iter_c) {
         off.src_iter_c = gpu::intel::get_outer_strides(src_iter_c_d);
-        // ocl_conf.inner_layouts.src_iter_c
-        //         = gpu::intel::get_inner_layout(src_iter_c_d);
     }
     off.weights_layer = gpu::intel::get_outer_strides(weights_layer_d);
-    //     ocl_conf.inner_layouts.weights_layer
-    //             = gpu::intel::get_inner_layout(weights_layer_d);
+
     off.weights_layer_comp_off
             = weights_layer_d.dims()[0] * weights_layer_d.strides()[0];
     off.weights_iter = gpu::intel::get_outer_strides(weights_iter_d);
-    //     ocl_conf.inner_layouts.weights_iter
-    //             = gpu::intel::get_inner_layout(weights_iter_d);
+
     off.weights_iter_comp_off
             = weights_iter_d.dims()[0] * weights_iter_d.strides()[0];
     off.bias = gpu::intel::get_outer_strides(bias_d);
-    //     ocl_conf.inner_layouts.bias = gpu::intel::get_inner_layout(bias_d);
+
     off.dst_layer = gpu::intel::get_outer_strides(dst_layer_d);
-    //     ocl_conf.inner_layouts.dst_layer
-    //             = gpu::intel::get_inner_layout(dst_layer_d);
+
     off.dst_iter = gpu::intel::get_outer_strides(dst_iter_d);
-    //     ocl_conf.inner_layouts.dst_iter = gpu::intel::get_inner_layout(dst_iter_d);
+
     if (with_dst_iter_c) {
         off.dst_iter_c = gpu::intel::get_outer_strides(dst_iter_c_d);
-        // ocl_conf.inner_layouts.dst_iter_c
-        //         = gpu::intel::get_inner_layout(dst_iter_c_d);
     }
 
     if (!is_fwd) {
         off.diff_src_layer = gpu::intel::get_outer_strides(diff_src_layer_d);
-        // ocl_conf.inner_layouts.diff_src_layer
-        //         = gpu::intel::get_inner_layout(diff_src_layer_d);
+
         off.diff_src_iter = gpu::intel::get_outer_strides(diff_src_iter_d);
-        // ocl_conf.inner_layouts.diff_src_iter
-        //         = gpu::intel::get_inner_layout(diff_src_iter_d);
+
         if (with_src_iter_c) {
             off.diff_src_iter_c
                     = gpu::intel::get_outer_strides(diff_src_iter_c_d);
-            //     ocl_conf.inner_layouts.diff_src_iter_c
-            //             = gpu::intel::get_inner_layout(diff_src_iter_c_d);
         }
         off.diff_weights_layer
                 = gpu::intel::get_outer_strides(diff_weights_layer_d);
-        // ocl_conf.inner_layouts.diff_weights_layer
-        //         = gpu::intel::get_inner_layout(diff_weights_layer_d);
+
         off.diff_weights_iter
                 = gpu::intel::get_outer_strides(diff_weights_iter_d);
-        // ocl_conf.inner_layouts.diff_weights_iter
-        //         = gpu::intel::get_inner_layout(diff_weights_iter_d);
+
         off.diff_bias = gpu::intel::get_outer_strides(diff_bias_d);
-        // ocl_conf.inner_layouts.diff_bias
-        //         = gpu::intel::get_inner_layout(diff_bias_d);
+
         off.diff_dst_layer = gpu::intel::get_outer_strides(diff_dst_layer_d);
-        // ocl_conf.inner_layouts.diff_dst_layer
-        //         = gpu::intel::get_inner_layout(diff_dst_layer_d);
+
         off.diff_dst_iter = gpu::intel::get_outer_strides(diff_dst_iter_d);
-        // ocl_conf.inner_layouts.diff_dst_iter
-        //         = gpu::intel::get_inner_layout(diff_dst_iter_d);
+
         if (with_dst_iter_c) {
             off.diff_dst_iter_c
                     = gpu::intel::get_outer_strides(diff_dst_iter_c_d);
-            //     ocl_conf.inner_layouts.diff_dst_iter_c
-            //             = gpu::intel::get_inner_layout(diff_dst_iter_c_d);
         }
     }
 
-    //     ocl_conf.cell_kind = rnn_pd->cell_kind();
-    //     ocl_conf.activation_kind = rnn_pd->activation_kind();
-    //     ocl_conf.direction_kind = rnn_pd->direction();
-
-    //     ocl_conf.wei_qparam_mask = rnn_pd->attr()->rnn_weights_qparams_.mask_;
-    //     ocl_conf.is_testmode = rnn.is_testmode;
-
-    //     ocl_conf.threads_per_eu = 0; // Currently unset, to be set later
-    //     ocl_conf.subgroup_size = 32; // TODO
-    //     dev_getenv(
-    //             "subgroup_size", device_info.max_subgroup_size(ocl_conf.acc_dt));
-    //     auto max_elemwise_threads
-    //             = utils::div_up(rnn.mb * rnn.dhc, ocl_conf.subgroup_size);
-    //     auto max_elemwise_threads_per_eu
-    //             = utils::div_up(max_elemwise_threads, device_info.eu_count());
-    //     auto preferred_threads_per_eu = 4;
-    //     ocl_conf.deterministic = rnn_pd->attr()->deterministic_;
-    //     ocl_conf.elemwise_bwd_batch_block = dev_getenv("bwd_batch_block",
-    //             into<int>(ocl_conf.deterministic
-    //                             ? rnn.mb
-    //                             : std::min(into<dim_t>(8),
-    //                                     utils::rnd_up_pow2(
-    //                                             max_elemwise_threads_per_eu
-    //                                             / preferred_threads_per_eu))));
-    //     ocl_conf.need_bias_atomic_reduce
-    //             = !ocl_conf.is_fwd && ocl_conf.elemwise_bwd_batch_block < rnn.mb;
-
-    //     ocl_conf.cell_comp.is_enabled
-    //             = rnn.cell_fusion.gemm_layer || rnn.cell_fusion.gemm_iter;
-    //     if (ocl_conf.cell_comp.is_enabled) {
-    //         bool fuse_gemm_layer = rnn.cell_fusion.gemm_layer;
-    //         bool fuse_gemm_iter = rnn.cell_fusion.gemm_iter;
-
-    //         // Due to poor performing tail handling, exact divisibility on subgroup
-    //         // size is preferred
-    //         for (int subgroup_size = ocl_conf.subgroup_size;
-    //                 subgroup_size >= 32; // TODO device_info.min_subgroup_size();
-    //                 subgroup_size /= 2) {
-    //             if (rnn.dhc % subgroup_size == 0) {
-    //                 ocl_conf.subgroup_size = subgroup_size;
-    //                 break;
-    //             }
-    //         }
-
-    // int dhc_thr = dev_getenv("dhc_thr", 1);
-    // int mb_thr = dev_getenv("mb_thr", 1);
-
-    // std::array<dim_t, 9> dhc_hw_threads = {1, 2, 3, 4, 5, 6, 7, 8, 16};
-    // std::array<dim_t, 3> mb_hw_threads = {1, 2, 4};
-    // int dhc_tg_best = 1;
-    // int mb_tg_best = 1;
-    // double best_score = 0;
-    // for (auto b_thread : mb_hw_threads) {
-    //     for (auto d_thread : dhc_hw_threads) {
-    //         dim_t dhc_tg = d_thread * ocl_conf.subgroup_size;
-    //         dim_t dhc_block = dhc_thr * dhc_tg;
-    //         dim_t mb_tg = b_thread;
-    //         dim_t mb_block = mb_thr * mb_tg;
-
-    //         double score = [&]() {
-    //             // subslice efficiency
-    //             dim_t used_b_threads
-    //                     = std::min(utils::div_up(rnn.mb, mb_thr), b_thread);
-    //             dim_t used_d_threads = std::min(
-    //                     utils::div_up(
-    //                             rnn.dhc, dhc_thr * ocl_conf.subgroup_size),
-    //                     d_thread);
-    //             double ss_eff = 1.0 * (used_d_threads * used_b_threads)
-    //                     / device_info.max_eus_per_wg();
-    //             {
-    //                 // Scale to prefer device efficiency over subslice
-    //                 // saturation
-    //                 std::array<double, 4> c {.7, .13, .10, .07};
-
-    //                 ss_eff = c[0] * nstl::clamp(ss_eff - 0, 0.0, 1.0)
-    //                         + c[1] * nstl::clamp(ss_eff - 1, 0.0, 1.0)
-    //                         + c[2] * nstl::clamp(ss_eff - 2, 0.0, 1.0)
-    //                         + c[3] * nstl::clamp(ss_eff - 3, 0.0, 1.0);
-    //             }
-
-    //             double work_eff
-    //                     = (1.0 * rnn.dhc
-    //                               / utils::rnd_up(rnn.dhc, dhc_block))
-    //                     * (1.0 * rnn.mb / utils::rnd_up(rnn.mb, mb_block));
-
-    //             dim_t ss_count = device_info.eu_count()
-    //                     / device_info.max_eus_per_wg();
-    //             dim_t wg_to_fill_ss_eu
-    //                     = utils::div_up(device_info.max_eus_per_wg(),
-    //                             (b_thread * d_thread));
-    //             dim_t ss_work
-    //                     = utils::div_up(utils::div_up(rnn.dhc, dhc_block)
-    //                                     * utils::div_up(rnn.mb, mb_block),
-    //                             wg_to_fill_ss_eu);
-
-    //             double device_eff
-    //                     = 1.0 * ss_work / utils::rnd_up(ss_work, ss_count);
-
-    //             return ss_eff * work_eff * device_eff;
-    //         }();
-
-    //         if (score > best_score) {
-    //             dhc_tg_best = dhc_tg;
-    //             mb_tg_best = mb_tg;
-    //             best_score = score;
-    //         }
-    //     }
-    // }
-
-    // int dhc_tg = dev_getenv("dhc_tg", dhc_tg_best);
-    // int mb_tg = dev_getenv("mb_tg", mb_tg_best);
-
-    // int mb_tail = dev_getenv("mb_tail",
-    //         rnn.mb % (mb_tg * mb_thr) != 0
-    //                 || rnn.mb % ocl_conf.subgroup_size != 0);
-    // int dhc_tail
-    //         = dev_getenv("dhc_tail", rnn.dhc % (dhc_tg * dhc_thr) != 0);
-    // int k_block = ocl_conf.subgroup_size;
-
-    // gpu_assert(dhc_tg % ocl_conf.subgroup_size == 0);
-
-    // ocl_conf.cell_comp.compute_gemm_layer = fuse_gemm_layer;
-    // ocl_conf.cell_comp.gemm_layer_k_tail
-    //         = fuse_gemm_layer && (rnn.slc % k_block != 0);
-    // ocl_conf.cell_comp.compute_gemm_iter = fuse_gemm_iter;
-    // ocl_conf.cell_comp.gemm_iter_k_tail
-    //         = fuse_gemm_iter && (rnn.sic % k_block != 0);
-    // ocl_conf.cell_comp.dhc_tail = dhc_tail;
-    // ocl_conf.cell_comp.mb_tail = mb_tail;
-    // ocl_conf.cell_comp.enable_iter_block = rnn.iter_loop != 1;
-    // ocl_conf.cell_comp.dhc_thr = dhc_thr;
-    // ocl_conf.cell_comp.dhc_tg = dhc_tg;
-    // ocl_conf.cell_comp.mb_thr = mb_thr;
-    // ocl_conf.cell_comp.mb_tg = mb_tg;
-    //     }
-
     return status::success;
 }
-
-// status_t ocl_conf_t::init_kernel_ctx(compute::kernel_ctx_t &kernel_ctx) const {
-
-//     // Fwd operations are not well optimized for larger grf mode
-//     primitive_attr_t ocl_attr;
-//     if (!is_fwd)
-//         CHECK(ocl_attr.set_gpu_attr(gpu_primitive_attr_t(threads_per_eu)));
-//     ocl_attr.deterministic_ = deterministic;
-//     kernel_ctx = compute::kernel_ctx_t(&ocl_attr);
-
-//     kernel_ctx.add_option("-cl-std=CL2.0");
-
-//     kernel_ctx.define_int("IS_FWD", is_fwd);
-//     kernel_ctx.define_int("IS_TRAINING", is_training);
-//     kernel_ctx.define_int("RECOMPUTE_GATES", recompute_gates);
-//     kernel_ctx.define_int("WITH_BIAS", with_bias);
-//     kernel_ctx.define_int("WITH_SRC_ITER", with_src_iter);
-//     kernel_ctx.define_int("WITH_SRC_ITER_C", with_src_iter_c);
-//     kernel_ctx.define_int("WITH_DST_ITER", with_dst_iter);
-//     kernel_ctx.define_int("WITH_DST_ITER_C", with_dst_iter_c);
-//     kernel_ctx.define_int("COPY_SRC_LAYER", copy_src_layer);
-//     kernel_ctx.define_int("COPY_DIFF_DST_LAYER", copy_diff_dst_layer);
-//     kernel_ctx.define_int("COPY_DIFF_SRC_LAYER", copy_diff_src_layer);
-
-//     kernel_ctx.define_int("ELEMWISE_BWD_BATCH_BLOCK", elemwise_bwd_batch_block);
-//     kernel_ctx.define_int("NEED_BIAS_ATOMIC_REDUCE", need_bias_atomic_reduce);
-//     kernel_ctx.define_int("VANILLA_RNN", alg_kind::vanilla_rnn);
-//     kernel_ctx.define_int("VANILLA_LSTM", alg_kind::vanilla_lstm);
-//     kernel_ctx.define_int("VANILLA_GRU", alg_kind::vanilla_gru);
-//     kernel_ctx.define_int("LBR_GRU", alg_kind::lbr_gru);
-//     kernel_ctx.define_int("CELL_KIND", cell_kind);
-
-//     kernel_ctx.define_int("ELTWISE_RELU", alg_kind::eltwise_relu);
-//     kernel_ctx.define_int("ELTWISE_TANH", alg_kind::eltwise_tanh);
-//     kernel_ctx.define_int("ELTWISE_LOGISTIC", alg_kind::eltwise_logistic);
-//     kernel_ctx.define_int("ACTIVATION_KIND", activation_kind);
-
-//     kernel_ctx.define_int("WS_GATES", rnn_utils::gates);
-//     kernel_ctx.define_int("WS_STATES", rnn_utils::states);
-//     kernel_ctx.define_int("WS_C_STATES", rnn_utils::c_states);
-//     kernel_ctx.define_int("WS_BIAS", rnn_utils::bias);
-
-//     kernel_ctx.define_int("L2R", dnnl_unidirectional_left2right);
-//     kernel_ctx.define_int("R2L", dnnl_unidirectional_right2left);
-//     kernel_ctx.define_int("CONCAT", dnnl_bidirectional_concat);
-//     kernel_ctx.define_int("SUM", dnnl_bidirectional_sum);
-//     kernel_ctx.define_int("DIRECTION_KIND", direction_kind);
-
-//     kernel_ctx.define_int("SUBGROUP_SIZE", subgroup_size);
-
-//     def_block_offsets(inner_layouts.src_layer, kernel_ctx, "SRC_L");
-//     def_block_offsets(inner_layouts.src_iter, kernel_ctx, "SRC_I");
-//     if (with_src_iter_c) {
-//         def_block_offsets(inner_layouts.src_iter_c, kernel_ctx, "SRC_I_C");
-//     }
-//     def_block_offsets(inner_layouts.weights_layer, kernel_ctx, "WEI_L");
-//     def_block_offsets(inner_layouts.weights_iter, kernel_ctx, "WEI_I");
-//     def_block_offsets(inner_layouts.dst_layer, kernel_ctx, "DST_L");
-//     def_block_offsets(inner_layouts.dst_iter, kernel_ctx, "DST_I");
-//     if (with_dst_iter_c)
-//         def_block_offsets(inner_layouts.dst_iter_c, kernel_ctx, "DST_I_C");
-//     def_block_offsets(inner_layouts.bias, kernel_ctx, "BIAS");
-
-//     if (!is_fwd) {
-//         def_block_offsets(
-//                 inner_layouts.diff_src_layer, kernel_ctx, "DIFF_SRC_L");
-//         def_block_offsets(
-//                 inner_layouts.diff_src_iter, kernel_ctx, "DIFF_SRC_I");
-//         if (with_src_iter_c)
-//             def_block_offsets(
-//                     inner_layouts.diff_src_iter_c, kernel_ctx, "DIFF_SRC_I_C");
-//         def_block_offsets(
-//                 inner_layouts.diff_weights_layer, kernel_ctx, "DIFF_WEI_L");
-//         def_block_offsets(
-//                 inner_layouts.diff_weights_iter, kernel_ctx, "DIFF_WEI_I");
-//         def_block_offsets(
-//                 inner_layouts.diff_dst_layer, kernel_ctx, "DIFF_DST_L");
-//         def_block_offsets(
-//                 inner_layouts.diff_dst_iter, kernel_ctx, "DIFF_DST_I");
-//         if (with_dst_iter_c)
-//             def_block_offsets(
-//                     inner_layouts.diff_dst_iter_c, kernel_ctx, "DIFF_DST_I_C");
-//         def_block_offsets(inner_layouts.diff_bias, kernel_ctx, "DIFF_BIAS");
-//     }
-
-//     if (src_dt == data_type::f16) {
-//         kernel_ctx.set_data_type(data_type::f16);
-//     } else
-//         kernel_ctx.set_data_type(data_type::f32);
-
-//     def_data_type(kernel_ctx, src_dt, "WS_STATE");
-//     def_data_type(kernel_ctx, src_dt, "SRC");
-//     def_data_type(kernel_ctx, src_c_dt, "SRC_C");
-//     def_data_type(kernel_ctx, wei_dt, "WEI_LAYER");
-//     def_data_type(kernel_ctx, wei_dt, "WEI_ITER");
-//     def_data_type(kernel_ctx, acc_dt, "ACC");
-//     def_data_type(kernel_ctx, aux_dt, "AUX");
-//     def_data_type(kernel_ctx, bia_dt, "BIAS");
-//     def_data_type(kernel_ctx, dst_dt, "DST");
-//     def_data_type(kernel_ctx, dst_c_dt, "DST_C");
-//     def_data_type(kernel_ctx, input_dt, "INPUT");
-//     def_data_type(kernel_ctx, output_dt, "OUTPUT");
-//     def_data_type(kernel_ctx, diff_dt, "DIFF");
-
-//     kernel_ctx.define_int("IS_INT8", is_int8);
-//     kernel_ctx.define_int("COPY_BIAS", copy_bias);
-//     kernel_ctx.define_int("WEI_QPARAM_MASK", wei_qparam_mask);
-//     kernel_ctx.define_int("IS_TESTMODE", is_testmode);
-
-//     if (cell_comp.is_enabled) {
-//         kernel_ctx.define_int("CELL_COMP_ENABLED", cell_comp.is_enabled);
-//         kernel_ctx.define_int(
-//                 "CELL_COMPUTE_GEMM_LAYER", cell_comp.compute_gemm_layer);
-//         kernel_ctx.define_int(
-//                 "CELL_GEMM_LAYER_K_TAIL", cell_comp.gemm_layer_k_tail);
-//         kernel_ctx.define_int(
-//                 "CELL_COMPUTE_GEMM_ITER", cell_comp.compute_gemm_iter);
-//         kernel_ctx.define_int(
-//                 "CELL_GEMM_ITER_K_TAIL", cell_comp.gemm_iter_k_tail);
-//         kernel_ctx.define_int("CELL_DHC_TAIL", cell_comp.dhc_tail);
-//         kernel_ctx.define_int("CELL_MB_TAIL", cell_comp.mb_tail);
-//         kernel_ctx.define_int(
-//                 "CELL_ENABLE_ITER_BLOCK", cell_comp.enable_iter_block);
-//         kernel_ctx.define_int("CELL_DHC_THR", cell_comp.dhc_thr);
-//         kernel_ctx.define_int("CELL_BATCH_THR", cell_comp.mb_thr);
-//     }
-
-//     return status::success;
-// }
 
 template <prop_kind_t aprop>
 inline status_t init_ocl_conf(const rnn_utils::conf_t &rnn,
@@ -487,22 +227,6 @@ inline status_t init_ocl_conf(const rnn_utils::conf_t &rnn,
             fakedesc, fakedesc, fakedesc, fakedesc, rnn_pd->workspace_md(0),
             off);
 }
-
-// template <>
-// inline status_t init_ocl_conf<prop_kind::backward>(
-//         rnn_utils::ocl_conf_t &ocl_conf, const rnn_utils::conf_t &rnn,
-//         const rnn_pd_t *rnn_pd, const compute::device_info_t &device_info,
-//         rnn_offsets_t &off) {
-//     return init_ocl_conf(ocl_conf, rnn_pd, rnn, device_info, rnn_pd->src_md(0),
-//             rnn_pd->src_md(1), rnn_pd->src_md(2), rnn_pd->weights_md(0),
-//             rnn_pd->weights_md(1), rnn_pd->weights_md(2), rnn_pd->dst_md(0),
-//             rnn_pd->dst_md(1), rnn_pd->dst_md(2), rnn_pd->diff_src_md(0),
-//             rnn_pd->diff_src_md(1), rnn_pd->diff_src_md(2),
-//             rnn_pd->diff_weights_md(0), rnn_pd->diff_weights_md(1),
-//             rnn_pd->diff_weights_md(2), rnn_pd->diff_dst_md(0),
-//             rnn_pd->diff_dst_md(1), rnn_pd->diff_dst_md(2),
-//             rnn_pd->workspace_md(0), off);
-// }
 
 template <>
 status_t _ref_rnn_common_t<prop_kind::forward>::pd_t::set_default_params() {
@@ -616,12 +340,6 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
     using namespace format_tag;
 
     assert(engine->kind() == engine_kind::gpu);
-    // auto *compute_engine
-    //         = utils::downcast<const compute::compute_engine_t *>(engine);
-
-    // const compute::device_info_t &device_info
-    //         = *(compute_engine->device_info());
-    // //     max_eus_per_wg = device_info.max_eus_per_wg();
 
     const alg_kind_t cell_kind = this->desc()->cell_kind;
 
@@ -676,17 +394,6 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
     VDISPATCH_RNN(IMPLICATION(src_layer_dt == data_type::u8,
                           this->desc()->prop_kind == forward_inference),
             VERBOSE_UNSUPPORTED_DT_CFG);
-    // //     VDISPATCH_RNN(
-    // //             compute_engine->mayiuse(compute::device_ext_t::intel_subgroups),
-    // //             VERBOSE_UNSUPPORTED_DEVICE_FEATURE, "subgroups");
-    // //     VDISPATCH_RNN(
-    // //             IMPLICATION(src_layer_dt == data_type::f16,
-    // //                     true
-    // //                             && compute_engine->mayiuse(
-    // //                                     compute::device_ext_t::khr_fp16)
-    // //                             && compute_engine->mayiuse(compute::device_ext_t::
-    // //                                             intel_subgroups_short)),
-    // //             VERBOSE_UNSUPPORTED_DT_CFG);
 
     init_rnn_conf(rnn_conf, *this->desc(), this->src_md(0), this->src_md(1),
             this->weights_md(0), this->weights_md(1), this->dst_md(0),
@@ -820,14 +527,41 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
     copy_res_layer_conf_.dst_md = xpu::sycl::md_t(this->dst_md(0));
     copy_res_layer_conf_.lr = !one_of(rnn_conf.exec_dir, r2l, r2l);
     copy_res_layer_conf_.rl = !one_of(rnn_conf.exec_dir, l2r, l2r);
-    copy_res_layer_conf_.dequantize = this->dst_md(0)->data_type == data_type::f32 && rnn_conf.is_int8;
+    copy_res_layer_conf_.dequantize
+            = this->dst_md(0)->data_type == data_type::f32 && rnn_conf.is_int8;
     copy_res_layer_conf_.direction = this->direction();
+
+    copy_res_iter_conf_ = sycl_rnn_copy_res_iter_conf_t();
+    copy_res_iter_conf_.dst_md = xpu::sycl::md_t(this->dst_md(1));
+    if (this->with_dst_iter_c()) {
+        copy_res_iter_conf_.dst_iter_c_md = xpu::sycl::md_t(this->dst_md(2));
+    }
+    copy_res_iter_conf_.dhc = rnn_conf.dhc;
+    copy_res_iter_conf_.shift = (this->attr()->rnn_data_qparams_.shift_);
+    copy_res_iter_conf_.scale = (this->attr()->rnn_data_qparams_.scale_);
+    copy_res_iter_conf_.n_dir = rnn_conf.n_dir;
+    copy_res_iter_conf_.dequantize
+            = this->dst_md(1)->data_type == data_type::f32 && rnn_conf.is_int8;
+    copy_res_iter_conf_.with_dst_iter_c = this->with_dst_iter_c();
+    copy_res_iter_conf_.batch = rnn_conf.mb;
+    copy_res_iter_conf_.n_iter = rnn_conf.n_iter;
+    copy_res_iter_conf_.n_layer = rnn_conf.n_layer;
+    copy_res_iter_conf_.states_ws_ld = rnn_conf.states_ws_ld;
 
     dim_t batch = rnn_conf.mb;
     dim_t n_gates = rnn_conf.n_gates;
     dim_t slc = rnn_conf.slc;
     dim_t sic = rnn_conf.sic;
     dim_t dhc = rnn_conf.dhc;
+
+    sycl_rnn_bias_conf_t_ = sycl_rnn_bias_conf_t();
+    sycl_rnn_bias_conf_t_.dst_md = xpu::sycl::md_t(this->dst_md(1));
+    sycl_rnn_bias_conf_t_.batch = rnn_conf.mb;
+    sycl_rnn_bias_conf_t_.dhc = rnn_conf.dhc;
+    sycl_rnn_bias_conf_t_.gates_ws_ld = rnn_conf.gates_ws_ld;
+    sycl_rnn_bias_conf_t_.states_ws_ld = rnn_conf.states_ws_ld;
+    sycl_rnn_bias_conf_t_.activation_kind = this->activation_kind();
+    sycl_rnn_bias_conf_t_.alpha = this->desc()->alpha;
 
     auto fpmath_mode = this->attr()->fpmath_.mode_;
 
@@ -840,6 +574,7 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
                     strides_t<2> c_strides, data_type_t a_dt, data_type_t b_dt,
                     data_type_t c_dt, float beta) -> status_t {
         memory_desc_t a_md, b_md, c_md;
+        // ANTON
         dims_t a_dims = {n, k}, b_dims = {k, m}, c_dims = {n, m};
 
         dims_t b_strides_md = {b_strides[0], b_strides[1]};
@@ -855,15 +590,6 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
         attr.deterministic_ = this->attr()->deterministic_;
         CHECK(dnnl::impl::create_gemm_pd(gemm_pd, engine, &a_md, &b_md, &c_md,
                 &glob_zero_md, c_dt, &attr));
-        // if (ocl_conf.threads_per_eu == 0)
-        //     CHECK(gemm_pd->query(query::preferred_gpu_threads_per_eu, 0,
-        //             &ocl_conf.threads_per_eu));
-        // else if (get_verbose_dev_mode(verbose_t::debuginfo) > 1) {
-        //     auto t = 0;
-        //     CHECK(gemm_pd->query(query::preferred_gpu_threads_per_eu, 0, &t));
-        //     if (t != ocl_conf.threads_per_eu)
-        //         printf("[WARNING] GEMM grf modes are inconsistent");
-        // }
         return status::success;
     };
 
@@ -876,6 +602,15 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
     float gemm_iter_bwd_beta = this->is_lbr() ? 1.0f : 0.0f;
     if (aprop == prop_kind::forward || rnn_conf.recompute_gates) {
         if (!rnn_conf.cell_fusion.gemm_layer) {
+            //VDISPATCH_RNN_SC(
+            //        create_gemm_pd(gemm_layer_fwd_pd_, slc, layer_merged_size,
+            //                n_gates * dhc, {rnn_conf.states_ws_ld, 1},
+            //                {off.weights_layer[4], off.weights_layer[1]},
+            //                {slc, 1}, weights_type,
+            //                src_type, rnn_conf.acc_data_type, 0.0),
+            //        "create_gemm_pd(gemm_layer_fwd_pd_)");
+
+            // ANTON
             VDISPATCH_RNN_SC(
                     create_gemm_pd(gemm_layer_fwd_pd_, n_gates * dhc,
                             layer_merged_size, slc, {rnn_conf.states_ws_ld, 1},
@@ -1014,37 +749,40 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
         }
     }
 
-
     // Setup binary for bias
-    if (this->cell_kind() == dnnl_vanilla_rnn){
+    if (this->cell_kind() == dnnl_vanilla_rnn) {
+        memory_desc_t dst_md;
+        dims_t dst_dims = {batch, 1, 1, n_gates * dhc};
+        dims_t dst_str = {n_gates * dhc, n_gates * dhc, n_gates * dhc, 1};
+        CHECK(memory_desc_init_by_strides(
+                dst_md, 4, dst_dims, dnnl_f32, dst_str));
+
         primitive_attr_t binary_attr;
         auto binary_desc = binary_desc_t();
         binary_desc.primitive_kind = primitive_kind::binary;
         binary_desc.alg_kind = alg_kind::binary_add;
-        binary_desc.src_desc[0] = this->bias_md_;
-        binary_desc.src_desc[1] = this->bias_md_;
-        binary_desc.dst_desc = this->bias_md_;
+        binary_desc.src_desc[0] = dst_md; // src value
+        binary_desc.src_desc[1] = this->bias_md_; // add value
+        binary_desc.dst_desc = dst_md;
 
-        primitive_desc_iterator_t it(engine, (op_desc_t *)&binary_desc,
-                &binary_attr, nullptr);
+        primitive_desc_iterator_t it(
+                engine, (op_desc_t *)&binary_desc, &binary_attr, nullptr);
         while (++it != it.end()) {
             bias_binary_pd_ = *it;
             if (bias_binary_pd_) { break; }
         }
         if (!bias_binary_pd_) return status::unimplemented;
-    }else{
+    } else {
         return status::unimplemented;
     }
 
-
     // Setup eltwise for vanilla activation
-    if (this->cell_kind() == dnnl_vanilla_rnn){
+    if (this->cell_kind() == dnnl_vanilla_rnn) {
         primitive_attr_t eltwise_attr;
         auto eltwise_desc = eltwise_desc_t();
         CHECK(eltwise_desc_init(&eltwise_desc, prop_kind_t::dnnl_forward,
-                this->activation_kind(), this->dst_md(),
-                this->dst_md(), nullptr, nullptr, 1,
-                0));
+                this->activation_kind(), this->dst_md(), this->dst_md(),
+                nullptr, nullptr, 1, 0));
         if (!eltwise_attr.is_initialized()) return status::out_of_memory;
         primitive_desc_iterator_t it(engine,
                 reinterpret_cast<op_desc_t *>(&eltwise_desc), &eltwise_attr,
@@ -1052,22 +790,8 @@ status_t _ref_rnn_common_t<aprop>::pd_t::init(impl::engine_t *engine) {
         if (!it.is_initialized()) return status::invalid_arguments;
         vanilla_cell_act_pd_ = *(++it);
 
-        // eltwise_pd_ = *(++it);
-        // eltwise_desc.primitive_kind = primitive_kind::eltwise;
-        // eltwise_desc.alg_kind = this->activation_kind();
-        // eltwise_desc.src_desc = *this->dst_md();
-        // eltwise_desc.dst_desc = *this->dst_md();
-        // eltwise_desc.alpha = 1;
-        // eltwise_desc.beta = 0;
-        
-        // primitive_desc_iterator_t it(engine, (op_desc_t *)&eltwise_desc,
-        //         &eltwise_attr, nullptr);
-        // while (++it != it.end()) {
-        //     vanilla_cell_act_pd_ = *it;
-        //     if (vanilla_cell_act_pd_) { break; }
-        // }
         if (!vanilla_cell_act_pd_) return status::unimplemented;
-    }else{
+    } else {
         return status::unimplemented;
     }
 
@@ -1081,24 +805,12 @@ status_t _ref_rnn_common_t<aprop>::init(impl::engine_t *engine) {
 
     switch (pd()->cell_kind()) {
         // case dnnl_vanilla_lstm:
-        //     cell_func = &class_name::cell_execution;
-        //     elemwise_common = pd()->src_type == data_type::u8
-        //                     && pd()->weights_type == data_type::s8
-        //             ? &class_name::lstm_elemwise_u8s8
-        //             : &class_name::lstm_elemwise;
         //     break;
         case dnnl_vanilla_rnn:
             cell_func = &class_name::cell_execution;
-            elemwise_common = &class_name::rnn_elemwise;
+            //elemwise_common = &class_name::rnn_elemwise;
+            //bias_common = &class_name::rnn_bias;
             break;
-        // case dnnl_vanilla_gru:
-        //     cell_func = &class_name::cell_execution_gru;
-        //     elemwise_gru = &class_name::gru_elemwise;
-        //     break;
-        // case dnnl_lbr_gru:
-        //     cell_func = &class_name::cell_execution_gru_lbr;
-        //     elemwise_gru_lbr = &class_name::gru_lbr_elemwise;
-        //     break;
         default: break;
     }
 
@@ -1108,9 +820,6 @@ status_t _ref_rnn_common_t<aprop>::init(impl::engine_t *engine) {
     rnn_utils::set_workspace_offsets(rnn, ws_gates_offset_, ws_states_offset_,
             ws_c_states_offset_, ws_grid_comp_offset_, ws_bias_offset_);
 
-    //     auto kernel_names = pd()->ocl_conf.get_kernel_names();
-    //     CHECK(create_kernels(engine, kernels_, kernel_names, pd()->ocl_conf));
-
     // IMPORTANT SYCL STUFF
     const auto copy_layer_kid
             = ::sycl::get_kernel_id<ref_rnn_copy_init_layer_t>();
@@ -1118,9 +827,15 @@ status_t _ref_rnn_common_t<aprop>::init(impl::engine_t *engine) {
             = ::sycl::get_kernel_id<ref_rnn_copy_init_iter_t>();
     const auto copy_res_layer_kid
             = ::sycl::get_kernel_id<ref_rnn_copy_res_layer_t>();
+    const auto copy_res_iter_kid
+            = ::sycl::get_kernel_id<ref_rnn_copy_res_iter>();
+    const auto bias_kid = ::sycl::get_kernel_id<ref_rnn_bias>();
+
     this->create_kernel(engine, copy_layer_kid, &copy_init_layer_kernel_);
     this->create_kernel(engine, copy_iter_kid, &copy_init_iter_kernel_);
     this->create_kernel(engine, copy_res_layer_kid, &copy_res_layer_kernel_);
+    this->create_kernel(engine, copy_res_iter_kid, &copy_res_iter_kernel_);
+    this->create_kernel(engine, bias_kid, &bias_kernel_);
 
     bool gemm_ok = true;
     auto create_nested_gemm =
@@ -1189,66 +904,23 @@ status_t _ref_rnn_common_t<aprop>::init(impl::engine_t *engine) {
 
     if (!gemm_ok) return status::runtime_error;
 
-    std::pair<std::shared_ptr<impl::primitive_t>, cache_state_t>
-                        pair;
-    if(pd()->cell_kind() == dnnl_vanilla_rnn){
-        bool binary_ok = pd()->bias_binary_pd_->create_primitive_nested(pair, engine)
-                            == status::success;
+    std::pair<std::shared_ptr<impl::primitive_t>, cache_state_t> pair;
+    if (pd()->cell_kind() == dnnl_vanilla_rnn) {
+        bool binary_ok
+                = pd()->bias_binary_pd_->create_primitive_nested(pair, engine)
+                == status::success;
         bias_binary_ = pair.first;
-        bool activation_ok = pd()->vanilla_cell_act_pd_->create_primitive_nested(pair, engine)
-                            == status::success;
+        bool activation_ok
+                = pd()->vanilla_cell_act_pd_->create_primitive_nested(
+                          pair, engine)
+                == status::success;
         vanilla_cell_act_ = pair.first;
-        if(!binary_ok || !activation_ok){
-                return status::unimplemented;
-        }
-    } else{
+        if (!binary_ok || !activation_ok) { return status::unimplemented; }
+    } else {
         return status::unimplemented;
     }
     return status::success;
 } // namespace sycl
-
-// template <prop_kind_t aprop>
-// status_t _ref_rnn_common_t<aprop>::init_res_storage(
-//         engine_t *engine, gpu_resource_t *r) const {
-//     if (pd()->rnn_conf.is_int8 && pd()->rnn_conf.copy_bias) {
-//         dim_t size = pd()->rnn_conf.n_gates * pd()->rnn_conf.dhc
-//                 * sizeof(float); // G * O * sizeof(float);
-//         memory_storage_t *tmp_mem_storage_ptr = nullptr;
-//         CHECK(engine->create_memory_storage(&tmp_mem_storage_ptr, size));
-//         // copy bias to memory storage
-//         std::unique_ptr<memory_storage_t> tmp_mem_storage(tmp_mem_storage_ptr);
-//         void *scales_ptr = nullptr;
-//         CHECK(tmp_mem_storage->map_data(&scales_ptr, nullptr,
-//                 sizeof(float) * pd()->rnn_conf.n_gates * pd()->rnn_conf.dhc));
-//         utils::array_copy((float *)scales_ptr,
-//                 pd()->attr()->rnn_weights_qparams_.scales_,
-//                 pd()->rnn_conf.n_gates * pd()->rnn_conf.dhc);
-//         CHECK(tmp_mem_storage->unmap_data(scales_ptr, nullptr));
-//         r->add_memory_storage(SCALES_, std::move(tmp_mem_storage));
-//     }
-
-//     // Prepare testmode scales defined by attributes. Doesn't introduce
-//     // primitive state, because it is a constant memory -- will not be
-//     // changed during execution.
-//     // TODO: add the testmode scales to ws
-//     if (pd()->rnn_conf.is_testmode && pd_->attr()->rnn_tparams_.scales_) {
-//         dim_t size = pd()->rnn_conf.tm_ngates
-//                 * sizeof(*pd_->attr()->rnn_tparams_.scales_);
-//         memory_storage_t *tmp_mem_storage_ptr = nullptr;
-//         CHECK(engine->create_memory_storage(&tmp_mem_storage_ptr, size));
-
-//         std::unique_ptr<memory_storage_t> tmp_mem_storage(tmp_mem_storage_ptr);
-//         void *tm_scales_ptr = nullptr;
-//         CHECK(tmp_mem_storage->map_data(&tm_scales_ptr, nullptr,
-//                 sizeof(float) * pd()->attr()->rnn_tparams_.ngates_));
-//         utils::array_copy((float *)tm_scales_ptr,
-//                 pd()->attr()->rnn_tparams_.scales_,
-//                 pd()->attr()->rnn_tparams_.ngates_);
-//         CHECK(tmp_mem_storage->unmap_data(tm_scales_ptr, nullptr));
-//         r->add_memory_storage(TM_SCALES_, std::move(tmp_mem_storage));
-//     }
-//     return status::success;
-// }
 
 template <prop_kind_t aprop>
 gemm_sig((_ref_rnn_common_t<aprop>::gemm_primitive)) {
@@ -1326,22 +998,9 @@ gemm_sig((_ref_rnn_common_t<aprop>::gemm_primitive)) {
             break;
         default: assert(!"unknown gemm_kind"); return status::runtime_error;
     }
+
     return status::success;
 }
-
-#define PRINT_VEC(data, size) \
-    { \
-        void *raw_data = nullptr; \
-        data.map_data(&raw_data, nullptr, size * sizeof(float)); \
-        for (auto i = 0; i < size; i++) { \
-            std::cout << #data << "[" << i \
-                      << "] = " << static_cast<float *>(raw_data)[i] << "\n"; \
-        } \
-        std::cout << "\n\n"; \
-        data.unmap_data(raw_data, nullptr); \
-    }
-
-
 
 //*************** Grid computations strategy: linear ***************//
 template <prop_kind_t aprop>
@@ -1367,42 +1026,76 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
     //         CHECK(zero(user_data.diff_wei_iter(), DNNL_ARG_DIFF_WEIGHTS_ITER));
     //     }
     // Grid Computation for RNN with a cell execution call
-    std::cout << "========================= grid_computation_sig ==========================\n";
+
     for (dim_t dir = 0; dir < n_dir; dir++) {
         for (dim_t j = 0; j < n_layer; j++) {
             dim_t lay = (aprop == prop_kind::forward) ? j : n_layer - j - 1;
 
-            std::cout << "========================= before grid_iter ==========================\n";
             auto grid_iter = rnn.merge_gemm_iter
                     ? workspace.states_range(lay, n_layer, dir, dir, -1, -1)
                     : sub_buffer_t();
-
+            /*
             if ((aprop == prop_kind::forward || rnn.recompute_gates)
                     && rnn.merge_gemm_layer && !rnn.cell_fusion.gemm_layer) {
-                std::cout << "========================= before grid_layer ==========================\n";
                 auto grid_layer = (!rnn.copy_src_layer && lay == 0)
                         ? user_data.src_layer(dir, 0, true)
                         : workspace.states_range(
-                                lay - 1, lay - 1, dir, dir, 0, n_iter);
-                PRINT_VEC(grid_layer.get_storage(), 64);
+                                lay - 1, lay - 1, dir, dir, -1, n_iter-1);
 
                 auto gemm_grid_layer_fwd = (!rnn.copy_src_layer && lay == 0)
                         ? gemm_layer_fwd_src
                         : gemm_layer_fwd;
-                
-                std::cout << "========================= before wei_layer ==========================\n";
+                nvidia::stream_t *stream
+                        = utils::downcast<nvidia::stream_t *>(ctx.stream());
+                printf("\n ========= BEFORE GEMM ==========\n");
+                stream->wait();
+                PRINT_VEC2(grid_layer.get(),  16)
+                PRINT_VEC2(user_data.wei_layer(lay, dir, true).get(), 16 * 16)
+                printf("\n =====INPUT ==========\n");
 
-                PRINT_VEC(user_data.wei_layer(lay, dir, true).get_storage(), 64);
-                std::cout << "========================= gemm_primitive (forward || recompute_gates) && merge_gemm_layer && !cell_fusion.gemm_layer ==========================\n";
+                void *raw_data = nullptr;
+                grid_layer.get()->map_data(
+                        &raw_data, nullptr, 16 * sizeof(float));
+                for (auto i = 0; i < 16; i++) {
+                    std::cout << static_cast<float *>(raw_data)[i] << ", ";
+                }
+                std::cout << "\n\n";
+                grid_layer.get()->unmap_data(raw_data, nullptr);
+                printf("\n ========= WEIGHTS ==========\n");
+
+                user_data.wei_layer(lay, dir, true).get()->map_data(
+                        &raw_data, nullptr, 16*16 * sizeof(float));
+                for (auto i = 0; i < 16*16; i++) {
+                    std::cout << static_cast<float *>(raw_data)[i] << ", ";
+                }
+                std::cout << "\n\n";
+                user_data.wei_layer(lay, dir, true).get()->unmap_data(raw_data, nullptr);
+
+                PRINT_VEC2(scratch.gates(), 16)
+
+                // ANTON
+                //CHECK(gemm_primitive(engine, ctx,
+                //        user_data.wei_layer(lay, dir, true), grid_layer,
+                //        *scratch.gates(), gemm_grid_layer_fwd));
+                //CHECK(gemm_primitive(engine, ctx, grid_layer,
+                //        user_data.wei_layer(lay, dir, true), *scratch.gates(),
+                //        gemm_grid_layer_fwd));
+
                 CHECK(gemm_primitive(engine, ctx,
-                        user_data.wei_layer(lay, dir, true), grid_layer,
+                        user_data.wei_layer(lay, dir, false), grid_layer,
                         *scratch.gates(), gemm_grid_layer_fwd));
+
+                printf("\n ========= AFTER GEMM ==========\n");
+                stream->wait();
+                PRINT_VEC2(scratch.gates(), 16*2)
             }
+*/
 
             for (dim_t i = 0; i < n_iter; i += rnn.iter_loop) {
                 dim_t iter = (aprop == prop_kind::forward) ? i : n_iter - i - 1;
                 CHECK((this->*cell_func)(engine, ctx, dir, lay, iter, user_data,
-                        workspace, scratch, diff_bias, scales, tm_scales, bias_binary_, activation_primitives));
+                        workspace, scratch, diff_bias, scales, tm_scales,
+                        bias_binary_, activation_primitives));
             }
 
             if (aprop == prop_kind::backward && rnn.merge_gemm_layer) {
@@ -1440,7 +1133,6 @@ grid_execution_sig((_ref_rnn_common_t<aprop>::linear_execution)) {
 
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::bias_prepare(const exec_ctx_t &ctx,
-        // compute::compute_stream_t *compute_stream,
         dim_t n_layer, dim_t n_dir, dim_t n_bias, dim_t n_gates, dim_t dhc,
         const memory_storage_t &ws_bias, const memory_storage_t &scales,
         const memory_storage_t &wei_layer, const memory_storage_t &wei_iter,
@@ -1448,49 +1140,20 @@ status_t _ref_rnn_common_t<aprop>::bias_prepare(const exec_ctx_t &ctx,
     return status::success;
 }
 
-//     float data_shift = pd()->attr()->rnn_data_qparams_.shift_;
-//     float data_scale = pd()->attr()->rnn_data_qparams_.scale_;
-
-//     compute::kernel_arg_list_t arg_list;
-//     arg_list.append(ws_bias);
-//     arg_list.append(scales);
-//     arg_list.append(wei_layer);
-//     arg_list.append(wei_iter);
-//     arg_list.append(bias);
-//     arg_list.append(into<int32_t>(dhc));
-//     arg_list.append(into<int32_t>(n_layer));
-//     arg_list.append(into<int32_t>(n_dir));
-//     arg_list.append(data_shift);
-//     arg_list.append(data_scale);
-
-//     arg_list.append(into<int32_t>(pd()->off.weights_layer_comp_off));
-//     arg_list.append(into<int32_t>(pd()->off.weights_iter_comp_off));
-//     arg_list.append(pd()->off.bias);
-
-//     return parallel_for(ctx,
-//             compute::nd_range_t({gpu_utils::into<size_t>(dhc),
-//                     gpu_utils::into<size_t>(n_bias),
-//                     gpu_utils::into<size_t>(n_layer * n_dir)}),
-//             kernels_[kernel_id::bias_prepare], arg_list);
-// }
-
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::copy_init_layer(const exec_ctx_t &ctx,
-        // compute::compute_stream_t *compute_stream,
         bool lr, bool rl, dim_t batch, dim_t dhc, dim_t slc, dim_t n_iter,
         dim_t n_layer, dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
         dim_t scratch_diff_states_ld, const memory_storage_t &ws_states,
         const memory_storage_t *scratch_diff_states,
         const memory_storage_t &input,
         const memory_storage_t &diff_dst_layer) const {
-    std::cout << "Enter copy_init_layer\n";
     nvidia::stream_t *stream
             = utils::downcast<nvidia::stream_t *>(ctx.stream());
 
-    auto block_size = 16;
-    auto wg_size = 16;
-    PRINT_VEC(input, 16)
-    PRINT_VEC(ws_states, 64)
+    printf("\n ========= BEFORE COPY INIT ==========\n");
+    stream->wait();
+    PRINT_VEC(ws_states, 256)
 
     parallel_for(ctx, copy_init_layer_kernel_, [&](::sycl::handler &cgh) {
         auto src_mem_arg
@@ -1506,13 +1169,12 @@ status_t _ref_rnn_common_t<aprop>::copy_init_layer(const exec_ctx_t &ctx,
 
         ref_rnn_copy_init_layer_t copy_kernel(
                 pd()->copy_init_layer_conf_, src_mem_arg, dst_mem_arg);
-        size_t local_batch = 2;
+        size_t local_batch = 4;
         size_t local_iter = 4;
         size_t local_channel = 4;
-        size_t global_batch = std::max(static_cast<size_t>(batch), local_batch);
-        size_t global_iter = std::max(static_cast<size_t>(n_iter), local_iter);
-        size_t global_channels
-                = std::max(static_cast<size_t>(slc), local_channel);
+        size_t global_batch = calc_global_range(static_cast<size_t>(batch));
+        size_t global_iter = calc_global_range(static_cast<size_t>(n_iter));
+        size_t global_channels = calc_global_range(static_cast<size_t>(slc));
         cgh.parallel_for(
                 ::sycl::nd_range<3>(::sycl::range<3>(global_iter, global_batch,
                                             global_channels),
@@ -1520,79 +1182,14 @@ status_t _ref_rnn_common_t<aprop>::copy_init_layer(const exec_ctx_t &ctx,
                                 local_iter, local_batch, local_channel)),
                 copy_kernel);
     });
-
-    //     stream->copy(input, ws_states, 16, stream->ctx().get_deps(), stream->ctx().get_deps());
+    printf("\n ========= AFTER COPY INIT ==========\n");
     stream->wait();
-    PRINT_VEC(ws_states, 64)
-    // return stream->interop_task([&](::sycl::handler &cgh) {
-    // auto in_arg = xpu::sycl::interop_memory_arg_t<
-    //         ::sycl::access::mode::read>(&input.get(), cgh);
-    // auto out_arg = xpu::sycl::interop_memory_arg_t<
-    //         ::sycl::access::mode::write>(&ws_states.get(), cgh);
-    // nvidia::compat::host_task(cgh, [=](const nvidia::compat::interop_handle &ih) {
-    //     auto &sycl_engine = *utils::downcast<nvidia::engine_t *>(
-    //             stream->engine());
-    // //     auto sc = cuda_sycl_scoped_context_handler_t(sycl_engine);
-    // cuMemCpy(out_arg.get_native_pointer(ih), in_arg.get_native_pointer(ih),
-    //     16*sizeof(float));
-    //     cudaDeviceSynchronize();
-    // });
-    // });
+    PRINT_VEC(ws_states, 256)
 
     return status::success;
 }
-//     int32_t unused_ld = 0;
-
-//     if (aprop == prop_kind::forward) {
-//         compute::kernel_arg_list_t arg_list;
-//         arg_list.append(ws_states);
-//         arg_list.append(input);
-//         arg_list.append(memory_storage_t::empty_storage());
-//         arg_list.append(into<int32_t>(lr));
-//         arg_list.append(into<int32_t>(rl));
-
-//         arg_list.append(into<int32_t>(batch));
-//         arg_list.append(into<int32_t>(dhc));
-//         arg_list.append(into<int32_t>(slc));
-//         arg_list.append(into<int32_t>(n_iter));
-//         arg_list.append(into<int32_t>(n_layer));
-//         arg_list.append(into<int32_t>(n_dir));
-//         arg_list.append(into<int32_t>(n_states));
-//         arg_list.append(into<int32_t>(states_ws_ld));
-//         arg_list.append(unused_ld);
-//         arg_list.append(pd()->off.src_layer);
-
-//         return parallel_for(ctx,
-//                 compute::nd_range_t(get_nd_range({slc, batch, n_iter})),
-//                 kernels_[kernel_id::copy_init_layer], arg_list);
-//     } else {
-//         compute::kernel_arg_list_t arg_list;
-//         arg_list.append(memory_storage_t::empty_storage());
-//         arg_list.append(diff_dst_layer);
-//         arg_list.append(*scratch_diff_states);
-//         arg_list.append(0);
-//         arg_list.append(0);
-
-//         arg_list.append(into<int32_t>(batch));
-//         arg_list.append(into<int32_t>(dhc));
-//         arg_list.append(into<int32_t>(slc));
-//         arg_list.append(into<int32_t>(n_iter));
-//         arg_list.append(into<int32_t>(n_layer));
-//         arg_list.append(into<int32_t>(n_dir));
-//         arg_list.append(into<int32_t>(n_states));
-//         arg_list.append(unused_ld);
-//         arg_list.append(into<int32_t>(scratch_diff_states_ld));
-//         arg_list.append(pd()->off.diff_dst_layer);
-
-//         return parallel_for(ctx,
-//                 compute::nd_range_t(get_nd_range({dhc, batch, n_iter})),
-//                 kernels_[kernel_id::copy_init_layer], arg_list);
-//     }
-// }
-
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::copy_init_iter(const exec_ctx_t &ctx,
-        // compute::compute_stream_t *compute_stream,
         dim_t batch, dim_t dhc, dim_t sic, dim_t n_iter, dim_t n_layer,
         dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
         dim_t scratch_diff_states_ld, const rnn_utils::workspace_t &ws,
@@ -1602,42 +1199,31 @@ status_t _ref_rnn_common_t<aprop>::copy_init_iter(const exec_ctx_t &ctx,
         const memory_storage_t &diff_dst_iter,
         const memory_storage_t &diff_dst_iter_c, const float shift,
         const float scale, const bool quantize) const {
-    std::cout << "Enter copy_init_iter\n";
     nvidia::stream_t *stream
             = utils::downcast<nvidia::stream_t *>(ctx.stream());
-    // ws.states().set_offset(16);
-    PRINT_VEC(firstit_states, 16)
-    PRINT_VEC((ws.states()), 64)
-
     parallel_for(ctx, copy_init_iter_kernel_, [&](::sycl::handler &cgh) {
         auto src_iter_mem_arg
                 = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
                         &firstit_states)
-                          ->get_in_memory_arg(ctx.stream(),
-                                  cgh); // CTX_IN_SYCL_KERNEL_MEMORY(DNNL_ARG_SRC);
+                          ->get_in_memory_arg(ctx.stream(), cgh);
         auto src_iter_c_mem_arg
-                =xpu::sycl::memory_storage_base_t::empty_in_memory_arg(
-                    ctx.stream(), cgh);
-                // = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
-                //         &firstit_c_states)
-                //           ->get_in_memory_arg(ctx.stream(),
-                //                   cgh); // CTX_IN_SYCL_KERNEL_MEMORY(DNNL_ARG_SRC);
+                = xpu::sycl::memory_storage_base_t::empty_in_memory_arg(
+                        ctx.stream(), cgh);
         auto ws_mem_arg
                 = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
                         &ws.states())
-                          ->get_out_memory_arg(ctx.stream(),
-                                  cgh); // CTX_OUT_SYCL_KERNEL_MEMORY(DNNL_ARG_DST);
+                          ->get_out_memory_arg(ctx.stream(), cgh);
 
         ref_rnn_copy_init_iter_t copy_kernel(pd()->copy_init_iter_conf_,
                 src_iter_mem_arg, src_iter_c_mem_arg, ws_mem_arg);
-        size_t local_lay_dir = 4;
-        size_t local_batch = 2;
+        size_t local_batch = 4;
         size_t local_channel = 4;
-        size_t global_batch = std::max(static_cast<size_t>(batch), local_batch);
-        size_t global_channels
-                = std::max(static_cast<size_t>(dhc), local_channel);
+        size_t local_lay_dir = 4;
+        size_t global_batch = calc_global_range(static_cast<size_t>(batch));
+        size_t global_channels = calc_global_range(
+                std::max(static_cast<size_t>(sic), static_cast<size_t>(dhc)));
         size_t global_lay_dir
-                = std::max(static_cast<size_t>(n_layer * n_dir), local_lay_dir);
+                = calc_global_range(static_cast<size_t>(n_layer * n_dir));
         cgh.parallel_for(
                 ::sycl::nd_range<3>(::sycl::range<3>(global_lay_dir,
                                             global_batch, global_channels),
@@ -1645,113 +1231,47 @@ status_t _ref_rnn_common_t<aprop>::copy_init_iter(const exec_ctx_t &ctx,
                                 local_lay_dir, local_batch, local_channel)),
                 copy_kernel);
     });
-
-    //     stream->copy(firstit_states, ws.states(), 16, stream->ctx().get_deps(),
-    //             stream->ctx().get_deps());
     stream->wait();
-    PRINT_VEC((ws.states()), 64)
+    printf("\n ========= AFTER COPY ITER ==========\n");
+    PRINT_VEC(ws.states(), 256)
     return status::success;
 }
 
-//     int32_t unused_ld = 0;
-//     if (aprop == prop_kind::forward) {
-//         dim_t max_d = std::max(dhc, sic);
-//         compute::kernel_arg_list_t arg_list;
-//         arg_list.append(ws.states());
-//         arg_list.append(ws.c_states());
-//         arg_list.append(firstit_states);
-//         arg_list.append(firstit_c_states);
-//         arg_list.append(memory_storage_t::empty_storage());
-
-//         arg_list.append(into<int32_t>(batch));
-//         arg_list.append(into<int32_t>(dhc));
-//         arg_list.append(into<int32_t>(sic));
-//         arg_list.append(into<int32_t>(n_iter));
-//         arg_list.append(into<int32_t>(n_layer));
-//         arg_list.append(into<int32_t>(n_dir));
-//         arg_list.append(into<int32_t>(n_states));
-//         arg_list.append(into<int32_t>(states_ws_ld));
-
-//         arg_list.append(pd()->off.src_iter);
-//         if (pd()->ocl_conf.with_src_iter_c)
-//             arg_list.append(pd()->off.src_iter_c);
-
-//         arg_list.append(shift);
-//         arg_list.append(scale);
-//         arg_list.append(into<int32_t>(quantize));
-//         arg_list.append(unused_ld);
-//         return parallel_for(ctx,
-//                 compute::nd_range_t({gpu_utils::into<size_t>(max_d),
-//                         gpu_utils::into<size_t>(batch),
-//                         gpu_utils::into<size_t>(n_layer * n_dir)}),
-//                 kernels_[kernel_id::copy_init_iter], arg_list);
-//     } else {
-//         compute::kernel_arg_list_t arg_list;
-//         arg_list.append(memory_storage_t::empty_storage());
-//         arg_list.append(memory_storage_t::empty_storage());
-//         arg_list.append(diff_dst_iter);
-//         arg_list.append(diff_dst_iter_c);
-//         arg_list.append(*scratch_diff_states);
-
-//         arg_list.append(into<int32_t>(batch));
-//         arg_list.append(into<int32_t>(dhc));
-//         arg_list.append(into<int32_t>(sic));
-//         arg_list.append(into<int32_t>(n_iter));
-//         arg_list.append(into<int32_t>(n_layer));
-//         arg_list.append(into<int32_t>(n_dir));
-//         arg_list.append(into<int32_t>(n_states));
-//         arg_list.append(unused_ld);
-//         arg_list.append(pd()->off.diff_dst_iter);
-//         if (pd()->ocl_conf.with_dst_iter_c)
-//             arg_list.append(pd()->off.diff_dst_iter_c);
-//         arg_list.append(into<int32_t>(scratch_diff_states_ld));
-
-//         return parallel_for(ctx,
-//                 compute::nd_range_t({gpu_utils::into<size_t>(dhc),
-//                         gpu_utils::into<size_t>(batch),
-//                         gpu_utils::into<size_t>(n_layer * n_dir)}),
-//                 kernels_[kernel_id::copy_init_iter], arg_list);
-//     }
-// }
-
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::copy_res_layer(const exec_ctx_t &ctx,
-        // compute::compute_stream_t *compute_stream,
         bool lr, bool rl, dim_t batch, dim_t dhc, dim_t slc, dim_t n_iter,
         dim_t n_layer, dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
         dim_t scratch_diff_states_ld,
         const memory_storage_t *scratch_diff_states,
         const memory_storage_t &dst_last_layer,
         const memory_storage_t &diff_src_layer,
-        const memory_storage_t &ws_states, const float shift, const float scale,
+        const rnn_utils::workspace_t &ws, const float shift, const float scale,
         const bool dequantize) const {
-    std::cout << "Enter copy_res_layer\n";
+
     nvidia::stream_t *stream
             = utils::downcast<nvidia::stream_t *>(ctx.stream());
-    PRINT_VEC(ws_states, 64)
-    PRINT_VEC(dst_last_layer, 16)
-
+    printf("\n ========= BEFORE COPY RES ==========\n");
+    stream->wait();
+    PRINT_VEC(ws.states(), 256)
     parallel_for(ctx, copy_res_layer_kernel_, [&](::sycl::handler &cgh) {
         auto ws_mem_arg
                 = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
-                        &ws_states)
-                          ->get_in_memory_arg(ctx.stream(),
-                                  cgh); // CTX_OUT_SYCL_KERNEL_MEMORY(DNNL_ARG_DST);
+                        &ws.states())
+                          ->get_in_memory_arg(ctx.stream(), cgh);
         auto dst_mem_arg
                 = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
                         &dst_last_layer)
-                          ->get_out_memory_arg(ctx.stream(),
-                                  cgh); // CTX_IN_SYCL_KERNEL_MEMORY(DNNL_ARG_SRC);
+                          ->get_out_memory_arg(ctx.stream(), cgh);
 
-        ref_rnn_copy_res_layer_t copy_kernel(pd()->copy_res_layer_conf_,
-                ws_mem_arg, dst_mem_arg);
-        size_t local_batch = 2;
+        ref_rnn_copy_res_layer_t copy_kernel(
+                pd()->copy_res_layer_conf_, ws_mem_arg, dst_mem_arg);
+        size_t local_batch = 4;
         size_t local_iter = 4;
         size_t local_channel = 4;
-        size_t global_batch = std::max(static_cast<size_t>(batch), local_batch);
-        size_t global_iter = std::max(static_cast<size_t>(n_iter), local_iter);
+        size_t global_batch = calc_global_range(static_cast<size_t>(batch));
+        size_t global_iter = calc_global_range(static_cast<size_t>(n_iter));
         size_t global_channels
-                = std::max(static_cast<size_t>(slc), local_channel);
+                = calc_global_range(static_cast<size_t>(n_states * dhc));
         cgh.parallel_for(
                 ::sycl::nd_range<3>(::sycl::range<3>(global_iter, global_batch,
                                             global_channels),
@@ -1759,70 +1279,14 @@ status_t _ref_rnn_common_t<aprop>::copy_res_layer(const exec_ctx_t &ctx,
                                 local_iter, local_batch, local_channel)),
                 copy_kernel);
     });
-
-
-    std::cout << "After copy_res_layer execution\n";
-
-//     stream->copy(*t, dst_last_layer, 16, stream->ctx().get_deps(),
-//             stream->ctx().get_deps());
+    printf("\n ========= AFTER COPY RES ==========\n");
     stream->wait();
-    PRINT_VEC(dst_last_layer, 16)
+    PRINT_VEC(dst_last_layer, 15)
     return status::success;
 }
 
-//     int32_t unused_ld = 0;
-//     if (aprop == prop_kind::forward) {
-//         compute::kernel_arg_list_t arg_list;
-//         arg_list.append(ws_states);
-//         arg_list.append(dst_last_layer);
-//         arg_list.append(memory_storage_t::empty_storage());
-//         arg_list.append(into<int32_t>(lr));
-//         arg_list.append(into<int32_t>(rl));
-
-//         arg_list.append(into<int32_t>(batch));
-//         arg_list.append(into<int32_t>(dhc));
-//         arg_list.append(into<int32_t>(slc));
-//         arg_list.append(into<int32_t>(n_iter));
-//         arg_list.append(into<int32_t>(n_layer));
-//         arg_list.append(into<int32_t>(n_dir));
-//         arg_list.append(into<int32_t>(n_states));
-//         arg_list.append(into<int32_t>(states_ws_ld));
-//         arg_list.append(unused_ld);
-
-//         arg_list.append(pd()->off.dst_layer);
-
-//         arg_list.append(shift);
-//         arg_list.append(scale);
-//         arg_list.append(into<int32_t>(dequantize));
-//         return parallel_for(ctx, get_nd_range({dhc, batch, n_iter}),
-//                 kernels_[kernel_id::copy_res_layer], arg_list);
-//     } else {
-//         compute::kernel_arg_list_t arg_list;
-//         arg_list.append(memory_storage_t::empty_storage());
-//         arg_list.append(diff_src_layer);
-//         arg_list.append(*scratch_diff_states);
-//         arg_list.append(into<int32_t>(lr));
-//         arg_list.append(into<int32_t>(rl));
-
-//         arg_list.append(into<int32_t>(batch));
-//         arg_list.append(into<int32_t>(dhc));
-//         arg_list.append(into<int32_t>(slc));
-//         arg_list.append(into<int32_t>(n_iter));
-//         arg_list.append(into<int32_t>(n_layer));
-//         arg_list.append(into<int32_t>(n_dir));
-//         arg_list.append(into<int32_t>(n_states));
-//         arg_list.append(unused_ld);
-//         arg_list.append(into<int32_t>(scratch_diff_states_ld));
-//         arg_list.append(pd()->off.diff_src_layer);
-
-//         return parallel_for(ctx, get_nd_range({slc, batch, n_iter}),
-//                 kernels_[kernel_id::copy_res_layer], arg_list);
-//     }
-// }
-
 template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::copy_res_iter(const exec_ctx_t &ctx,
-        // compute::compute_stream_t *compute_stream,
         dim_t batch, dim_t dhc, dim_t sic, dim_t n_iter, dim_t n_layer,
         dim_t n_dir, dim_t n_states, dim_t states_ws_ld,
         dim_t scratch_diff_states_ld,
@@ -1833,84 +1297,93 @@ status_t _ref_rnn_common_t<aprop>::copy_res_iter(const exec_ctx_t &ctx,
         const memory_storage_t &diff_src_iter_c,
         const rnn_utils::workspace_t &ws, const float shift, const float scale,
         const bool dequantize) const {
-    std::cout << "Enter copy_res_iter\n";
-//     nvidia::stream_t *stream
-//             = utils::downcast<nvidia::stream_t *>(ctx.stream());
-//     PRINT_VEC(ws.states(), 64)
-//     auto tmp = ws.states().clone();
-//     tmp->set_offset(tmp->offset() + 32 * sizeof(float));
-//     std::cout << "offset: " << tmp->offset() << "\n";
-//     auto t = tmp.get();
-//     PRINT_VEC((*t), 16)
-//     // PRINT_VEC(ws.states(), 16)
-//     PRINT_VEC(dst_last_iter, 16)
-//     stream->copy(*t, dst_last_iter, 16, stream->ctx().get_deps(),
-//             stream->ctx().get_deps());
-//     PRINT_VEC(dst_last_iter, 16)
-//     stream->wait();
+
+    nvidia::stream_t *stream
+            = utils::downcast<nvidia::stream_t *>(ctx.stream());
+
+    parallel_for(ctx, copy_res_iter_kernel_, [&](::sycl::handler &cgh) {
+        auto src_iter
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        &ws.states())
+                          ->get_in_memory_arg(ctx.stream(), cgh);
+        auto dst_iter
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        &dst_last_iter)
+                          ->get_out_memory_arg(ctx.stream(), cgh);
+        auto dst_iter_c = pd()->copy_res_iter_conf_.with_dst_iter_c
+                ? utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        &dst_last_iter_c)
+                          ->get_out_memory_arg(ctx.stream(), cgh)
+                : xpu::sycl::memory_storage_base_t::empty_out_memory_arg(
+                        ctx.stream(), cgh);
+        ref_rnn_copy_res_iter copy_kernel(
+                pd()->copy_res_iter_conf_, src_iter, dst_iter, dst_iter_c);
+
+        size_t local_batch = 4;
+        size_t local_channel = 4;
+        size_t local_lay_dir = 4;
+        size_t global_batch = calc_global_range(static_cast<size_t>(batch));
+        size_t global_channels = calc_global_range(static_cast<size_t>(dhc));
+        size_t global_lay_dir
+                = calc_global_range(static_cast<size_t>(n_layer * n_dir));
+        cgh.parallel_for(
+                ::sycl::nd_range<3>(::sycl::range<3>(global_lay_dir,
+                                            global_batch, global_channels),
+                        ::sycl::range<3>(
+                                local_lay_dir, local_batch, local_channel)),
+                copy_kernel);
+    });
+
     return status::success;
 }
-//     int32_t unused_ld = 0;
-//     if (aprop == prop_kind::forward) {
-//         compute::kernel_arg_list_t arg_list;
-//         arg_list.append(ws.states());
-//         arg_list.append(ws.c_states());
-//         arg_list.append(dst_last_iter);
-//         arg_list.append(dst_last_iter_c);
-//         arg_list.append(memory_storage_t::empty_storage());
 
-//         arg_list.append(into<int32_t>(batch));
-//         arg_list.append(into<int32_t>(dhc));
-//         arg_list.append(into<int32_t>(sic));
-//         arg_list.append(into<int32_t>(n_iter));
-//         arg_list.append(into<int32_t>(n_layer));
-//         arg_list.append(into<int32_t>(n_dir));
-//         arg_list.append(into<int32_t>(n_states));
-//         arg_list.append(into<int32_t>(states_ws_ld));
-//         arg_list.append(unused_ld);
+template <prop_kind_t aprop>
+status_t _ref_rnn_common_t<aprop>::rnn_bias(const exec_ctx_t &ctx, dim_t batch,
+        dim_t dhc, dim_t iter, dim_t lay, dim_t dir,
+        const rnn_utils::workspace_t &ws, const rnn_utils::scratch_t &scratch,
+        const rnn_utils ::user_data_t &user_data) const {
+    nvidia::stream_t *stream
+            = utils::downcast<nvidia::stream_t *>(ctx.stream());
 
-//         arg_list.append(pd()->off.dst_iter);
-//         if (pd()->ocl_conf.with_dst_iter_c)
-//             arg_list.append(pd()->off.dst_iter_c);
+    printf("\n ========= BEFORE BIAS ==========\n");
+    stream->wait();
+    PRINT_VEC(ws.states(), 256)
 
-//         arg_list.append(shift);
-//         arg_list.append(scale);
-//         arg_list.append(into<int32_t>(dequantize));
-//         return parallel_for(ctx,
-//                 compute::nd_range_t({gpu_utils::into<size_t>(dhc),
-//                         gpu_utils::into<size_t>(batch),
-//                         gpu_utils::into<size_t>(n_layer * n_dir)}),
-//                 kernels_[kernel_id::copy_res_iter], arg_list);
-//     } else {
-//         dim_t max_d = std::max(dhc, sic);
-//         compute::kernel_arg_list_t arg_list;
-//         arg_list.append(memory_storage_t::empty_storage());
-//         arg_list.append(memory_storage_t::empty_storage());
-//         arg_list.append(diff_src_iter);
-//         arg_list.append(diff_src_iter_c);
-//         arg_list.append(*scratch_diff_states);
+    parallel_for(ctx, bias_kernel_, [&](::sycl::handler &cgh) {
+        auto src_mem_arg
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        &scratch.sub_gates(0).get_storage())
+                          ->get_inout_memory_arg(ctx.stream(), cgh);
+        auto bias_mem_arg
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        user_data.sub_bias(lay, dir).get())
+                          ->get_in_memory_arg(ctx.stream(), cgh);
 
-//         arg_list.append(into<int32_t>(batch));
-//         arg_list.append(into<int32_t>(dhc));
-//         arg_list.append(into<int32_t>(sic));
-//         arg_list.append(into<int32_t>(n_iter));
-//         arg_list.append(into<int32_t>(n_layer));
-//         arg_list.append(into<int32_t>(n_dir));
-//         arg_list.append(into<int32_t>(n_states));
-//         arg_list.append(unused_ld);
-//         arg_list.append(into<int32_t>(scratch_diff_states_ld));
+        auto dst_mem_arg
+                = utils::downcast<const xpu::sycl::memory_storage_base_t *>(
+                        &ws.sub_state(lay, dir, iter-1
+                        ).get_storage())
+                          ->get_out_memory_arg(ctx.stream(), cgh);
+        ref_rnn_bias bias_kernel(pd()->sycl_rnn_bias_conf_t_, src_mem_arg,
+                bias_mem_arg, dst_mem_arg);
 
-//         arg_list.append(pd()->off.diff_src_iter);
-//         if (pd()->ocl_conf.with_src_iter_c)
-//             arg_list.append(pd()->off.diff_src_iter_c);
+        size_t local_batch = 4;
+        size_t local_channel = 4;
+        size_t global_batch = calc_global_range(static_cast<size_t>(batch));
+        size_t global_channels = calc_global_range(static_cast<size_t>(dhc));
+        cgh.parallel_for(
+                ::sycl::nd_range<3>(
+                        ::sycl::range<3>(global_channels, global_batch, 1),
+                        ::sycl::range<3>(local_channel, local_batch, 1)),
+                bias_kernel);
+    });
 
-//         return parallel_for(ctx,
-//                 compute::nd_range_t({gpu_utils::into<size_t>(max_d),
-//                         gpu_utils::into<size_t>(batch),
-//                         gpu_utils::into<size_t>(n_layer * n_dir)}),
-//                 kernels_[kernel_id::copy_res_iter], arg_list);
-//     }
-// }
+    printf("\n ========= AFTER BIAS ==========\n");
+    stream->wait();
+    PRINT_VEC(ws.states(), 256)
+
+    return status::success;
+}
 
 // //********************* Execution function *********************//
 
@@ -1918,8 +1391,6 @@ template <prop_kind_t aprop>
 status_t _ref_rnn_common_t<aprop>::execute_(const exec_ctx_t &ctx) const {
 
     impl::engine_t *engine = ctx.stream()->engine();
-    //     auto *compute_stream
-    //             = utils::downcast<compute::compute_stream_t *>(ctx.stream());
 
     auto rnn_pd = this->pd();
 
@@ -2024,7 +1495,6 @@ status_t _ref_rnn_common_t<aprop>::execute_(const exec_ctx_t &ctx) const {
         scales_buf = &CTX_GPU_RES_STORAGE(SCALES_);
     }
 
-    PRINT_VEC(user_data.bias(), 16)
     // bias prepare if needed
     if (rnn.copy_bias) {
         CHECK(bias_prepare(ctx, n_layer, n_dir, n_bias, n_gates, dhc,
@@ -2056,10 +1526,12 @@ status_t _ref_rnn_common_t<aprop>::execute_(const exec_ctx_t &ctx) const {
         tm_scales_buf = &CTX_GPU_RES_STORAGE(TM_SCALES_);
     }
 
-    std::vector<std::shared_ptr<impl::primitive_t>> activation_primitives{vanilla_cell_act_};
+    std::vector<std::shared_ptr<impl::primitive_t>> activation_primitives {
+            vanilla_cell_act_};
     // run the execution on the grid
     CHECK((this->*grid_computation)(engine, ctx, user_data, workspace, scratch,
-            diff_bias_native_, scales_buf, tm_scales_buf, bias_binary_, activation_primitives));
+            diff_bias_native_, scales_buf, tm_scales_buf, bias_binary_,
+            activation_primitives));
 
     // Finally we copy the results to the result buffers
 
@@ -2069,8 +1541,8 @@ status_t _ref_rnn_common_t<aprop>::execute_(const exec_ctx_t &ctx) const {
         CHECK(copy_res_layer(ctx, is_lr, is_rl, batch, dhc, slc, n_iter,
                 n_layer, n_dir, n_states, rnn.states_ws_ld,
                 rnn.scratch_diff_states_ld, scratch.diff_states(),
-                dst_last_layer_native_, diff_src_layer_native_,
-                workspace.states(), shift, scale, dequantize_l));
+                dst_last_layer_native_, diff_src_layer_native_, workspace,
+                shift, scale, dequantize_l));
     }
     const bool dequantize_i = pd()->with_dst_iter()
             && pd()->dst_md(1)->data_type == data_type::f32 && rnn.is_int8;
@@ -2087,34 +1559,20 @@ template <>
 cell_execution_sig(ref_rnn_fwd_t::cell_execution);
 template <>
 cell_execution_sig(ref_rnn_bwd_t::cell_execution);
-// template <>
-// cell_execution_sig(ref_rnn_fwd_t::cell_execution_gru);
-// template <>
-// cell_execution_sig(ref_rnn_bwd_t::cell_execution_gru);
-// template <>
-// cell_execution_sig(ref_rnn_fwd_t::cell_execution_gru_lbr);
-// template <>
-// cell_execution_sig(ref_rnn_bwd_t::cell_execution_gru_lbr);
-template <>
-elemwise_sig(ref_rnn_fwd_t::rnn_elemwise);
-template <>
-elemwise_sig(ref_rnn_bwd_t::rnn_elemwise);
-template <>
-elemwise_sig(ref_rnn_fwd_t::lstm_elemwise);
-template <>
-elemwise_sig(ref_rnn_bwd_t::lstm_elemwise);
-template <>
-elemwise_sig(ref_rnn_fwd_t::lstm_elemwise_u8s8);
-template <>
-elemwise_sig(ref_rnn_bwd_t::lstm_elemwise_u8s8);
-// template <>
-// elemwise_sig_gru_lbr(ref_rnn_fwd_t::gru_lbr_elemwise);
-// template <>
-// elemwise_sig_gru_lbr(ref_rnn_bwd_t::gru_lbr_elemwise);
-// template <>
-// elemwise_sig_gru(ref_rnn_fwd_t::gru_elemwise);
-// template <>
-// elemwise_sig_gru(ref_rnn_bwd_t::gru_elemwise);
+//template <>
+//elemwise_sig(ref_rnn_fwd_t::rnn_elemwise);
+//template <>
+//bias_sig(ref_rnn_fwd_t::rnn_bias);
+//template <>
+//elemwise_sig(ref_rnn_bwd_t::rnn_elemwise);
+//template <>
+//elemwise_sig(ref_rnn_fwd_t::lstm_elemwise);
+//template <>
+//elemwise_sig(ref_rnn_bwd_t::lstm_elemwise);
+//template <>
+//elemwise_sig(ref_rnn_fwd_t::lstm_elemwise_u8s8);
+//template <>
+//elemwise_sig(ref_rnn_bwd_t::lstm_elemwise_u8s8);
 
 template struct _ref_rnn_common_t<prop_kind::forward>;
 template struct _ref_rnn_common_t<prop_kind::backward>;

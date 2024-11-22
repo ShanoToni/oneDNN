@@ -17,6 +17,7 @@
 // Common for RNN and LSTM cell execution
 
 #include "gpu/generic/sycl/rnn/ref_rnn.hpp"
+#include "gpu/nvidia/stream.hpp"
 
 namespace dnnl {
 namespace impl {
@@ -39,6 +40,30 @@ strides_t<out_ndims> inner(const strides_t<in_ndims> &s) {
     return ret;
 }
 
+#define PRINT_VEC(data, size) \
+    { \
+        void *raw_data = nullptr; \
+        data.map_data(&raw_data, nullptr, size * sizeof(float)); \
+        for (auto i = 0; i < size; i++) { \
+            std::cout << #data << "[" << i \
+                      << "] = " << static_cast<float *>(raw_data)[i] << "\n"; \
+        } \
+        std::cout << "\n\n"; \
+        data.unmap_data(raw_data, nullptr); \
+    }
+
+#define PRINT_VEC2(data, size) \
+    { \
+        void *raw_data = nullptr; \
+        data->map_data(&raw_data, nullptr, size * sizeof(float)); \
+        for (auto i = 0; i < size; i++) { \
+            std::cout << #data << "[" << i \
+                      << "] = " << static_cast<float *>(raw_data)[i] << "\n"; \
+        } \
+        std::cout << "\n\n"; \
+        data->unmap_data(raw_data, nullptr); \
+    }
+
 status_t compute_cell_fwd(const exec_ctx_t &ctx, int lay, int dir, int iter,
         const workspace_t &workspace, const user_data_t user_data,
         const sub_buffer_t &weights_layer, const sub_buffer_t &weights_iter,
@@ -46,76 +71,9 @@ status_t compute_cell_fwd(const exec_ctx_t &ctx, int lay, int dir, int iter,
         const sub_buffer_t &cell_iter, const strides_t<4> &cell_iter_strides,
         const sub_buffer_t &scratch_gates,
         const strides_t<2> &scratch_gates_strides, float alpha,
-        const memory_storage_t *tm_scales, const conf_t &conf, const rnn_offsets_t &offsets) {
-                return status::success;
-
-//     auto &cell_conf = ocl_conf.cell_comp;
-//     const size_t dhc = conf.dhc;
-//     const size_t dhc_thr = cell_conf.dhc_thr;
-//     const size_t dhc_tg = cell_conf.dhc_tg;
-//     const size_t dhc_loop = utils::rnd_up(conf.dhc_loop, dhc_thr * dhc_tg);
-
-//     gpu_assert(dhc_tg % ocl_conf.subgroup_size == 0);
-
-//     const size_t mb = conf.mb;
-//     const size_t batch_tg = cell_conf.mb_tg;
-//     const size_t batch_thr = cell_conf.mb_thr;
-//     const size_t batch_local = batch_thr * batch_tg;
-//     compute::nd_range_t nd_range {
-//             {utils::div_up(dhc, dhc_loop) * dhc_tg,
-//                     utils::div_up(mb, batch_local) * batch_tg},
-//             {dhc_tg, batch_tg}};
-
-//     auto gates = workspace.gates(lay, dir, iter);
-//     auto gates_strides = workspace.gates_strides();
-//     auto states = workspace.states(lay, dir, iter);
-//     auto states_strides = workspace.states_strides();
-//     auto bias = user_data.bias(lay, dir);
-//     auto c_states_t_l = ocl_conf.cell_kind == alg_kind::vanilla_lstm
-//             ? workspace.c_states(lay, dir, iter)
-//             : sub_buffer_t();
-//     auto c_states_tm1_l = ocl_conf.cell_kind == alg_kind::vanilla_lstm
-//             ? workspace.c_states(lay, dir, iter - 1)
-//             : sub_buffer_t();
-
-//     arg_list_t arg_list;
-//     arg_list.append(weights_layer, ocl_conf.wei_dt);
-//     arg_list.append(offsets.weights_layer);
-//     arg_list.append(weights_iter, ocl_conf.wei_dt);
-//     arg_list.append(offsets.weights_iter);
-//     arg_list.append(cell_layer, ocl_conf.aux_dt);
-//     arg_list.append(inner<2>(cell_layer_strides));
-//     arg_list.append(cell_iter, ocl_conf.aux_dt);
-//     arg_list.append(inner<2>(cell_iter_strides));
-//     arg_list.append(gates, ocl_conf.aux_dt);
-//     arg_list.append(inner<2>(gates_strides));
-//     arg_list.append(states, ocl_conf.aux_dt);
-//     arg_list.append(inner<2>(states_strides));
-
-//     if (ocl_conf.cell_kind == alg_kind::vanilla_lstm) {
-//         arg_list.append(c_states_t_l, ocl_conf.aux_dt);
-//         arg_list.append(c_states_tm1_l, ocl_conf.aux_dt);
-//         arg_list.append(conf.tm_cscale);
-//     }
-
-//     if (!(cell_conf.compute_gemm_layer && cell_conf.compute_gemm_iter)) {
-//         arg_list.append(scratch_gates, ocl_conf.aux_dt);
-//         arg_list.append(scratch_gates_strides);
-//     }
-
-//     if (cell_conf.enable_iter_block) { arg_list.append(conf.iter_loop); }
-
-//     arg_list.append(bias, ocl_conf.bia_dt);
-//     arg_list.append(alpha);
-//     arg_list.append(get_storage(tm_scales));
-//     arg_list.append(conf.mb);
-//     arg_list.append(conf.dhc);
-//     arg_list.append(conf.slc);
-//     arg_list.append(conf.sic);
-
-//     arg_list.append(gpu_utils::into<dim_t>(dhc_loop));
-
-//     return gpu_primitive_t::parallel_for(ctx, nd_range, kernel, arg_list.args);
+        const memory_storage_t *tm_scales, const conf_t &conf,
+        const rnn_offsets_t &offsets) {
+    return status::success;
 }
 
 template <prop_kind_t aprop>
@@ -124,23 +82,28 @@ cell_execution_sig((_ref_rnn_common_t<aprop>::cell_execution)) {
     // const ocl_conf_t &ocl_conf = this->pd()->ocl_conf;
     const rnn_offsets_t &offsets = this->pd()->off;
 
-    // const bool use_cell = ocl_conf.cell_comp.is_enabled;
+    // const bool use_cell = ocl_conf.cell_comp.is_enabled;u
     auto use_cell = false; // TODO
 
     strides_t<4> user_layer_strides {[&]() {
         auto s = user_data.src_layer_strides(dir);
         return strides_t<4> {0, 0, s[0], s[1]};
     }()};
-    std::cout << "========================= cell_execution_sig ==========================\n";
     auto cell_layer = !rnn.copy_src_layer && lay == 0
             ? user_data.src_layer(dir, iter)
-            : workspace.states(lay - 1, dir, iter);
+            : workspace.states_range(
+                    lay - 1, lay - 1, dir, dir, iter - 1, iter - 1);
     auto &cell_layer_strides = !rnn.copy_src_layer && lay == 0
             ? user_layer_strides
             : workspace.states_strides();
-    auto cell_iter = workspace.states(lay, dir, iter - 1);
+    //auto cell_iter = workspace.states(lay, dir, iter - 1);
+    //auto cell_iter = workspace.states(iter - 1, dir, lay);
+    auto cell_iter = workspace.states_range(
+            lay, lay, dir, dir, iter - 2, iter - 2);
+
     auto &cell_iter_strides = workspace.states_strides();
-    auto scratch_gates = scratch.gates(iter);
+    // TODO ANTON
+    auto scratch_gates = scratch.gates(0);
     strides_t<2> scratch_gates_strides
             = {scratch.calc_off_gates(1), rnn.scratch_gates_ld};
 
@@ -148,37 +111,46 @@ cell_execution_sig((_ref_rnn_common_t<aprop>::cell_execution)) {
     auto wei_iter = user_data.wei_iter(lay, dir);
 
     if ((aprop == prop_kind::forward) || rnn.recompute_gates) {
-        std::cout << "========================= gemm_primitive (forward || recompute) ==========================\n";
+
         if (!rnn.merge_gemm_layer && !rnn.cell_fusion.gemm_layer) {
             auto gemm_cell_layer_fwd = !rnn.copy_src_layer && lay == 0
                     ? gemm_layer_fwd_src
                     : gemm_layer_fwd;
-            std::cout << "========================= gemm_primitive (!merge_gemm_layer && !cell_fusion.gemm_layer) ==========================\n";
             CHECK(gemm_primitive(engine, ctx, wei_layer, cell_layer,
                     scratch_gates, gemm_cell_layer_fwd));
         }
 
-        if (!rnn.cell_fusion.gemm_iter){
-            std::cout << "========================= gemm_primitive (cell_fusion gemm_iter) ==========================\n";
+        if (!rnn.cell_fusion.gemm_iter) {
+            nvidia::stream_t *stream
+                    = utils::downcast<nvidia::stream_t *>(ctx.stream());
+            printf("\n ========= BEFORE ITER GEMM ==========\n");
+            stream->wait();
+            PRINT_VEC2(scratch.gates(), 16 * 2)
+            PRINT_VEC(workspace.states(), 16)
+            PRINT_VEC(user_data.wei_iter(), 16 * 16)
             CHECK(gemm_primitive(engine, ctx, wei_iter, cell_iter,
                     scratch_gates, gemm_iter_fwd));
+
+            printf("\n ========= AFTER ITER GEMM ==========\n");
+            stream->wait();
+            PRINT_VEC2(scratch.gates(), 16 * 2)
         }
     }
 
     if (aprop == prop_kind::forward) {
         if (!use_cell) {
-            CHECK((this->*elemwise_common)(ctx, dir, lay, iter, rnn.dhc, rnn.mb,
-                    1, user_data, workspace, scratch_gates, {}, {}, {}, {}, {},
-                    {}, 0, scales, tm_scales, diff_bias, bias_primitive, activation_primitives));
+            CHECK(rnn_bias(ctx, rnn.mb, rnn.dhc, iter, lay, dir, workspace,
+                    scratch, user_data));
         } else {
-            CHECK(compute_cell_fwd(ctx, lay, dir,
-                    iter, workspace, user_data, wei_layer, wei_iter, cell_layer,
-                    cell_layer_strides, cell_iter, cell_iter_strides,
-                    scratch_gates, scratch_gates_strides, pd()->desc()->alpha,
-                    tm_scales, rnn, offsets));
+            CHECK(compute_cell_fwd(ctx, lay, dir, iter, workspace, user_data,
+                    wei_layer, wei_iter, cell_layer, cell_layer_strides,
+                    cell_iter, cell_iter_strides, scratch_gates,
+                    scratch_gates_strides, pd()->desc()->alpha, tm_scales, rnn,
+                    offsets));
         }
 
-    } else { // backward
+    } else { // backward TODO
+        /*
         auto diff_states_iter = scratch.diff_states(lay, dir, 0, iter + 1);
         auto diff_states_iter_s1 = rnn.n_states == 2
                 ? scratch.diff_states(lay, dir, 1, iter + 1)
@@ -201,10 +173,11 @@ cell_execution_sig((_ref_rnn_common_t<aprop>::cell_execution)) {
                 : scratch.diff_states(lay, dir, rnn.n_states, iter);
         auto diff_gates = scratch.diff_gates(iter);
 
-        CHECK((this->*elemwise_common)(ctx, dir, lay, iter, rnn.dhc, rnn.mb, 1, user_data, workspace,
-                scratch_gates, diff_gates, diff_states, diff_states_s1,
-                diff_states_iter, diff_states_iter_s1, diff_states_layer,
-                diff_states_layer_ld, scales, tm_scales, diff_bias, bias_primitive, activation_primitives));
+        CHECK((this->*bias_common)(ctx, dir, lay, iter, rnn.dhc, rnn.mb, 1,
+                user_data, workspace, scratch_gates, diff_gates, diff_states,
+                diff_states_s1, diff_states_iter, diff_states_iter_s1,
+                diff_states_layer, diff_states_layer_ld, scales, tm_scales,
+                diff_bias, bias_primitive, activation_primitives));
 
         CHECK(gemm_primitive(
                 engine, ctx, wei_iter, diff_gates, diff_states, gemm_iter_bwd));
@@ -226,6 +199,7 @@ cell_execution_sig((_ref_rnn_common_t<aprop>::cell_execution)) {
             CHECK(gemm_primitive(engine, ctx, diff_gates, cell_iter,
                     user_data.diff_wei_iter(lay, dir), gemm_diff_wei_iter));
         }
+        */
     }
     return status::success;
 }

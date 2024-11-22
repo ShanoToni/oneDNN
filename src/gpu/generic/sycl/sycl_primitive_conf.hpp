@@ -341,30 +341,30 @@ struct sycl_pooling_conf_t {
     sycl_post_ops_t post_ops;
 };
 
-struct sycl_rnn_copy_init_layer_conf_t{
+struct sycl_rnn_copy_init_layer_conf_t {
     xpu::sycl::md_t src_md;
-    dim_t batch; 
-    dim_t slc; 
-    dim_t n_iter; 
+    dim_t batch;
+    dim_t slc;
+    dim_t n_iter;
     dim_t n_layer;
-    dim_t n_dir; 
+    dim_t n_dir;
     dim_t n_states;
     dim_t states_ws_ld;
     bool lr;
     bool rl;
 };
 
-struct sycl_rnn_copy_init_iter_conf_t{
+struct sycl_rnn_copy_init_iter_conf_t {
     xpu::sycl::md_t src_iter_md;
     xpu::sycl::md_t src_iter_c_md;
     float shift;
     float scale;
-    dim_t batch; 
-    dim_t dhc; 
-    dim_t sic; 
-    dim_t n_iter; 
+    dim_t batch;
+    dim_t dhc;
+    dim_t sic;
+    dim_t n_iter;
     dim_t n_layer;
-    dim_t n_dir; 
+    dim_t n_dir;
     dim_t n_states;
     dim_t states_ws_ld;
     bool lr;
@@ -373,25 +373,48 @@ struct sycl_rnn_copy_init_iter_conf_t{
     bool with_iter_c;
 };
 
-struct sycl_rnn_copy_res_layer_conf_t{
+struct sycl_rnn_copy_res_layer_conf_t {
     xpu::sycl::md_t dst_md;
     float shift;
     float scale;
-    dim_t batch; 
-    dim_t dhc; 
-    dim_t slc; 
-    dim_t n_iter; 
+    dim_t batch;
+    dim_t dhc;
+    dim_t slc;
+    dim_t n_iter;
     dim_t n_layer;
-    dim_t n_dir; 
+    dim_t n_dir;
     dim_t n_states;
     dim_t states_ws_ld;
     bool lr;
     bool rl;
     bool dequantize;
     dnnl_rnn_direction_t direction;
-    
 };
 
+struct sycl_rnn_copy_res_iter_conf_t {
+    xpu::sycl::md_t dst_md;
+    xpu::sycl::md_t dst_iter_c_md;
+    dim_t dhc;
+    float shift;
+    float scale;
+    dim_t n_dir;
+    bool dequantize;
+    bool with_dst_iter_c;
+    dim_t batch;
+    dim_t n_iter;
+    dim_t n_layer;
+    dim_t states_ws_ld;
+};
+
+struct sycl_rnn_bias_conf_t {
+    xpu::sycl::md_t dst_md;
+    dim_t batch;
+    dim_t dhc;
+    dim_t gates_ws_ld;
+    dim_t states_ws_ld;
+    dnnl_alg_kind_t activation_kind;
+    float alpha;
+};
 
 CHECK_SYCL_KERNEL_ARG_TYPE(sycl_binary_conf_t);
 CHECK_SYCL_KERNEL_ARG_TYPE(sycl_prelu_conf_t);

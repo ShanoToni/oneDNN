@@ -63,8 +63,8 @@ void rnn_utils::init_rnn_conf(conf_t &rnn, const rnn_desc_t &rd,
         const memory_desc_wrapper &dst_layer_d,
         const memory_desc_wrapper &dst_iter_d,
         const memory_desc_wrapper &diff_dst_layer_d,
-        const memory_desc_wrapper &bias_d, data_type_t acc_data_t){
-        // const device_info_t &device_info) {
+        const memory_desc_wrapper &bias_d, data_type_t acc_data_t) {
+    // const device_info_t &device_info) {
 
     // TODO
     bool is_xe_hpc = false; // device_info.gpu_arch() == gpu_arch_t::xe_hpc;
@@ -157,9 +157,11 @@ void rnn_utils::init_rnn_conf(conf_t &rnn, const rnn_desc_t &rd,
 
     // Does not account for alignment striding
     dim_t merge_scratch_size_estimate = rnn.gates_ld * rnn.mb * rnn.n_iter;
+    // ANTON TODO
     bool is_small_scratch = merge_scratch_size_estimate < 256 * 1024 * 1024;
-    rnn.merge_gemm_layer = dev_getenv("merge_gemm_layer",
-            is_small_scratch); // Avoid excessive memory usage
+    //rnn.merge_gemm_layer = dev_getenv("merge_gemm_layer",
+    //        is_small_scratch); // Avoid excessive memory usage
+    rnn.merge_gemm_layer = false;
     rnn.merge_gemm_iter = dev_getenv("merge_gemm_iter",
             is_small_scratch && dst_layer_is_trivial_stride
                     && !(rnn.is_fwd || is_gru));
@@ -169,55 +171,19 @@ void rnn_utils::init_rnn_conf(conf_t &rnn, const rnn_desc_t &rd,
                 && utils::one_of(rd.cell_kind, alg_kind::vanilla_rnn,
                         alg_kind::vanilla_lstm);
         // Poor implementation performance if dhc % subgroup_size != 0
-        
+
         // TODO
         bool tail_dhc = true; // rnn.dhc % device_info.min_subgroup_size() != 0;
-
-        // Since RNN cells may result in very small workloads the CPU overhead
-        // to dispatch kernels may be significant. As such, if the work per eu
-        // is too small, we need to fuse kernel operations to reduce CPU
-        // workload.
-        // dim_t fuse_gemm_limit = [&]() {
-        //     const dim_t work_threshold = tail_dhc ? 512 : 1024;
-        //     return work_threshold * device_info.eu_count()
-        //             * device_info.max_subgroup_size(rnn.acc_data_type);
-        // }();
 
         // For large enough k dimension, parallelization in external gemm
         // kernels is more performant.
         const dim_t k_limit = tail_dhc ? 50 : 160;
 
-        // The fused gemm implementation assumes the dst channel dimension is
-        // dense
-        // auto is_dense_dst_c = [](const memory_desc_wrapper &md) {
-        //     if (md.format_kind() == format_kind::any) return true;
-        //     if (md.format_kind() != format_kind::blocked) return false;
-        //     if (md.dims()[4] == 1) return true;
-        //     if (md.blocking_desc().strides[4] == 1) return true;
-        //     return false;
-        // };
-
         rnn.cell_fusion.gemm_iter = false;
-                // = dev_getenv("fuse_gemm_iter",
-                //           !rnn.merge_gemm_iter
-                //                   && rnn.dhc * rnn.sic * rnn.mb * rnn.n_gates
-                //                           < fuse_gemm_limit
-                //                   && rnn.sic < k_limit
-                //                   && is_dense_dst_c(weights_layer_d))
-                // && can_fuse_gemm;
         rnn.cell_fusion.gemm_layer = false;
-                // = dev_getenv("fuse_gemm_layer",
-                //           rnn.cell_fusion.gemm_iter && !rnn.merge_gemm_layer
-                //                   && rnn.dhc * rnn.slc * rnn.mb * rnn.n_gates
-                //                           < fuse_gemm_limit
-                //                   && rnn.slc < k_limit
-                //                   && is_dense_dst_c(weights_iter_d))
-                // && can_fuse_gemm;
 
         // Currently, external gemm_iter always accumulates in C. As such,
         // external gemm_layer is required to initialize the memory.
-        // gpu_assert(IMPLICATION(
-        //         rnn.cell_fusion.gemm_layer, rnn.cell_fusion.gemm_iter));
 
         bool can_iter_loop = rnn.cell_fusion.gemm_iter
                 && (rnn.merge_gemm_layer || rnn.cell_fusion.gemm_layer);
@@ -273,10 +239,10 @@ void rnn_utils::set_rnn_conf(conf_t &rnn, const rnn_desc_t &rd,
 
     const bool is_fwd = rnn.is_fwd;
     const bool is_bwd = !rnn.is_fwd;
-    
+
     // TODO
-    dim_t aux_elsz
-            = static_cast<dim_t>(types::data_type_size(rnn.aux_data_type)); // TODO: Accumulation dt I guess?
+    dim_t aux_elsz = static_cast<dim_t>(types::data_type_size(
+            rnn.aux_data_type)); // TODO: Accumulation dt I guess?
     rnn.ws_states_elsz = types::data_type_size(rnn.src_data_type);
 
     rnn.scratch_gates_elsz = types::data_type_size(rnn.acc_data_type);
@@ -288,11 +254,12 @@ void rnn_utils::set_rnn_conf(conf_t &rnn, const rnn_desc_t &rd,
     // diff states to copmute bwd pass (training only)
     // intermediate results from the gates
     rnn.states_ws_ld = get_good_ld(rnn.arch_ld,
+            //nstl::max(rnn.dhc, nstl::max(rnn.dhc, rnn.dhc)),
             nstl::max(rnn.slc, nstl::max(rnn.sic, rnn.dhc)),
             rnn.ws_states_elsz);
     // TODO
     rnn.gates_ws_ld = get_good_ld(rnn.arch_ld, rnn.gates_ld, aux_elsz);
-    
+
     // Disable associativity check on some large problems to reduce memory
     // usage. Can be removed when further improvements are made to
     // copy_diff_src_layer
@@ -332,9 +299,10 @@ void rnn_utils::set_rnn_conf(conf_t &rnn, const rnn_desc_t &rd,
         }
 
         // Bug workaround, likely related to the undefined mb stride
-        if (pdims[1] == 1) return true;
+        /*if (pdims[1] == 1)*/
+        return true;
 
-        return false;
+        // return false;
     }();
 
     bool prefer_copy_src_layer = [&]() {
@@ -508,7 +476,8 @@ dim_t rnn_utils::get_good_ld(
     // Leading dimension for matrices has 64-byte or 128-byte alignment (PVC-A)
     dim_t ld = rnd_up(dim, arch_ld / sizeof_dt);
     // Further alignment is associated with 8-way associativity of L1-cache
-    return (ld % 256 == 0) && !ignore_assoc ? ld + arch_ld / sizeof_dt : ld;
+    //return (ld % 256 == 0) && !ignore_assoc ? ld + arch_ld / sizeof_dt : ld;
+    return dim;
 }
 
 dim_t rnn_utils::set_workspace_offsets(const conf_t &rnn,

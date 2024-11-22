@@ -57,10 +57,7 @@ struct memory_storage_t : public c_compatible {
     virtual status_t set_data_handle(void *handle) = 0;
 
     size_t offset() const { return offset_; }
-    void set_offset(size_t offset) { 
-        offset_ = offset; 
-        std::cout << "================================ memory_storage set_offset() : " << offset_ << "======================================\n";
-        }
+    void set_offset(size_t offset) { offset_ = offset; }
 
     virtual size_t base_offset() const { return 0; }
 
