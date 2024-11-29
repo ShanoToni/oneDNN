@@ -23,6 +23,8 @@
 
 #include "gpu/generic/sycl/sycl_gpu_kernel.hpp"
 
+#include <tuple>
+
 namespace dnnl {
 namespace impl {
 namespace gpu {
@@ -33,17 +35,29 @@ struct primitive_t : public impl::primitive_t {
     using impl::primitive_t::primitive_t;
 
 protected:
-    status_t create_kernel(
-            impl::engine_t *engine, ::sycl::kernel_id kid, kernel_t *kernel) {
+    template <class... SpecConstants, class TupleType = std::tuple<>>
+    status_t create_kernel(impl::engine_t *engine, ::sycl::kernel_id kid,
+            kernel_t *kernel,
+            const TupleType &spec_constants_values = std::tuple<>()) {
+        static_assert(is_tuple<TupleType>::value);
+
         auto ctx = utils::downcast<const xpu::sycl::engine_impl_t *>(
                 engine->impl())
                            ->context();
         auto input_bundle
                 = ::sycl::get_kernel_bundle<::sycl::bundle_state::input>(
                         ctx, {kid});
-        auto exe_bundle = ::sycl::build(input_bundle);
-
-        (*kernel) = kernel_t(exe_bundle);
+        if constexpr (sizeof...(SpecConstants) > 0) {
+            apply_specialization_constants<SpecConstants..., TupleType, 0>(
+                    spec_constants_values, input_bundle);
+        }
+        try {
+            (*kernel) = kernel_t(::sycl::build(input_bundle));
+        } catch (const ::sycl::exception &e) {
+            // TODO: what is the error reporting mechanism in oneDNN ?
+            return status::
+                    unimplemented; // would this be the correct error code to return ?
+        }
         return status::success;
     }
 
@@ -51,6 +65,31 @@ protected:
             const std::function<void(::sycl::handler &)> &cgf) const {
         return kernel.parallel_for(*ctx.stream(), cgf);
     }
+
+private:
+    template <class SpecConstant, class... RemainingSpecConstants,
+            typename TupleType, int id>
+    void apply_specialization_constants(const TupleType &spec_constants_values,
+            ::sycl::kernel_bundle<::sycl::bundle_state::input>
+                    &input_kernel_bundle) {
+        input_kernel_bundle.template set_specialization_constant<SpecConstant>(
+                std::get<id>(spec_constants_values));
+        if constexpr (sizeof...(RemainingSpecConstants) != 0) {
+            apply_specialization_constants<RemainingSpecConstants..., TupleType,
+                    id + 1>(spec_constants_values, input_kernel_bundle);
+        }
+    }
+
+    template <typename>
+    struct is_tuple : std::false_type {};
+    template <typename... T>
+    struct is_tuple<std::tuple<T...>> : std::true_type {};
+
+    template <typename>
+    struct is_specialization_constant : std::false_type {};
+    template <typename T>
+    struct is_specialization_constant<::sycl::specialization_id<T>>
+        : std::true_type {};
 };
 
 } // namespace sycl
