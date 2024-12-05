@@ -18,6 +18,7 @@
 #define GPU_GENERIC_SYCL_MATMUL_KERNELS_HPP
 
 #include "common/primitive_exec_types.hpp"
+#include "gpu/generic/sycl/specialization_constants.hpp"
 #include "gpu/generic/sycl/sycl_io_helper.hpp"
 #include "gpu/generic/sycl/sycl_math_utils.hpp"
 #include "gpu/generic/sycl/sycl_post_ops.hpp"
@@ -409,16 +410,24 @@ struct matmul_kernel_fwd_t {
                   CTX_IN_SYCL_KERNEL_MEMORY(DNNL_ARG_ATTR_DROPOUT_PROBABILITY))
         , po_args_(cgh, ctx, conf_.post_ops) {}
 
-    void operator()(::sycl::nd_item<1> item) const {
+    void operator()(::sycl::nd_item<1> item, ::sycl::kernel_handler kh) const {
         using data_block_t = register_block<register_block_M, register_block_K>;
         using weights_block_t
                 = register_block<register_block_K, register_block_N>;
         using dst_block_t = register_block<register_block_M, register_block_N>;
 
-        memory_tensor_t data_mem(data_, conf_.data_md);
-        memory_tensor_t weights_mem(weights_, conf_.weights_md);
-        memory_tensor_t bias_mem(bias_, conf_.bias_md);
-        memory_tensor_t dst_mem(dst_, conf_.dst_md);
+        // Get the value of the spec constant;
+        auto md_t_spec_const_pod_val = kh.get_specialization_constant<
+                detail::matmul::md_t_spec_const_id>();
+        auto data_md = md_t_spec_const_pod_val.data_md_t;
+        auto weights_md = md_t_spec_const_pod_val.weights_md_t;
+        auto dst_md = md_t_spec_const_pod_val.dst_md_t;
+        auto bias_md = md_t_spec_const_pod_val.bias_md_t;
+
+        memory_tensor_t data_mem(data_, data_md);
+        memory_tensor_t weights_mem(weights_, weights_md);
+        memory_tensor_t bias_mem(bias_, bias_md);
+        memory_tensor_t dst_mem(dst_, dst_md);
         memory_plain_t data_scale_mem(data_scale_, data_scales_dt_);
         memory_plain_t weights_scale_mem(weights_scale_, weights_scales_dt_);
         memory_plain_t dst_scale_mem(dst_scale_, dst_scales_dt_);
